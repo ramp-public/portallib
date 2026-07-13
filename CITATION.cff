@@ -1,0 +1,11 @@
+cff-version: 1.2.0
+message: "If you use PorTAL, please cite this software."
+title: "PorTAL: Portable Task Adapters for LLMs"
+type: software
+authors:
+  - family-names: Geist
+    given-names: Benjamin
+repository-code: "https://github.com/ramp-public/portallib"
+url: "https://app.notion.com/p/PorTAL-Portable-Task-Adapters-for-LLMs-3833d1a933618041bfcae511a8088ad4"
+version: 0.1.0
+license: Apache-2.0
