@@ -1,10 +1,6 @@
 # PorTAL: Portable Task Adapters for LLMs
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/portal_header_dark.png">
-  <source media="(prefers-color-scheme: light)" srcset="docs/assets/portal_header_light.png">
-  <img alt="PorTAL wordmark passing through two portals" src="docs/assets/portal_header_light.png">
-</picture>
+![PorTAL wordmark passing through two portals](docs/assets/portal_header.png)
 
 > Alpha research release [announced by Ramp Labs](https://x.com/RampLabs/status/2072381992285647280).
 > APIs and artifact schemas may evolve before the first stable release.
