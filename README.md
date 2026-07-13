@@ -74,7 +74,7 @@ default, restore the best-accuracy checkpoint, and report material per-task regr
 ```bash
 python examples/train_example.py \
   --dataset RampPublic/portallib-tasks \
-  --dataset-revision fa00ae3fd84ab8ea93bccc898e28b8ac3f8c7d9c \
+  --dataset-revision 3f0a5e6e028a56cf6029bb4761df97d0ff36731d \
   --output portal-example
 ```
 
