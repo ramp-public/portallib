@@ -1,8 +1,8 @@
 # Reproducing PorTAL experiments
 
-The [PorTAL paper](https://app.notion.com/p/PorTAL-Portable-Task-Adapters-for-LLMs-3833d1a933618041bfcae511a8088ad4)
-is the authority for the paper-scale recipe. This document separates that recipe from the earlier
-expanded-suite experiment whose source artifacts are already public.
+The original PorTAL research results were [announced by Ramp
+Labs](https://x.com/RampLabs/status/2072381992285647280). This document separates the benchmark
+recipe from the earlier expanded-suite experiment whose source artifacts are already public.
 
 ## Published expanded-suite source artifacts
 

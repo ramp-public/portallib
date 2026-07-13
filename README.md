@@ -2,8 +2,7 @@
 
 ![PorTAL wordmark passing through two portals](docs/assets/portal_header.png)
 
-> Alpha research release accompanying
-> [PorTAL: Portable Task Adapters for LLMs](https://app.notion.com/p/PorTAL-Portable-Task-Adapters-for-LLMs-3833d1a933618041bfcae511a8088ad4).
+> Alpha research release [announced by Ramp Labs](https://x.com/RampLabs/status/2072381992285647280).
 > APIs and artifact schemas may evolve before the first stable release.
 
 PorTAL learns a base-agnostic task latent and a light per-base decoder that generates ordinary
