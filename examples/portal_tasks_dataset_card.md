@@ -4,7 +4,7 @@ language:
 - en
 license: other
 task_categories:
-- text-classification
+- multiple-choice
 size_categories:
 - 100K<n<1M
 ---
