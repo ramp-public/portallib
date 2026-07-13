@@ -104,7 +104,8 @@ Published native source artifacts from the canonical 14-task run are available f
 [`Qwen3-4B`](https://huggingface.co/RampPublic/portallib-qwen3-4b). Both contain the identical shared
 core and task-latent table with a base-specific alignment. Load either with
 `PortalModel.from_pretrained(...)`, generate one task's factors in memory, or export an ordinary PEFT
-adapter.
+adapter. [`REPRODUCING.md`](REPRODUCING.md) records the exact published dataset and model revisions,
+complete training configuration, checkpoint-selection rule, command, and measured results.
 
 ### Prepare the canonical task data
 
