@@ -13,14 +13,6 @@ PorTAL artifacts. It has no Modal or research-backend dependency.
 
 ![PorTAL source training and target-base refitting phases](docs/assets/portal_phases.gif)
 
-```mermaid
-flowchart LR
-    Z["Shared task latent z"] --> C["Canonical LoRA core"]
-    C --> A["Base-specific alignment"]
-    A --> L["Per-layer LoRA factors"]
-    L --> B["Frozen base model"]
-```
-
 During source training, PorTAL jointly learns the task-latent table, one shared canonical core, and
 one alignment for each source base. To port the learned tasks, it freezes the latent table and core
 and refits only a fresh alignment for the target base. The resulting task adapter is exportable as
