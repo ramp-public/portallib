@@ -96,6 +96,31 @@ python examples/train_example.py --dataset tasks.json --output portal-sources \
 
 The output directory contains the best-epoch source artifacts and the best-epoch refitted artifact.
 
+### Prepare the canonical task data
+
+[`examples/prepare_dataset.py`](examples/prepare_dataset.py) downloads pinned revisions of the 14
+upstream benchmark datasets and reproduces the exact prompt and choice normalization used by the
+paper-scale examples:
+
+```bash
+python examples/prepare_dataset.py --output portal_tasks.json
+python examples/train_example.py --dataset portal_tasks.json --output portal-example
+```
+
+Pass `--tasks rte,boolq` to prepare a smaller subset. The preparation script only writes locally by
+default. Uploading the normalized dataset is a separate explicit operation:
+
+```bash
+python examples/prepare_dataset.py --output portal_tasks.json \
+  --push-to-hub namespace/portal-tasks --private
+```
+
+Review the terms of every selected upstream dataset before redistributing normalized rows. The
+canonical suite contains datasets under multiple licenses; portallib's Apache-2.0 license applies to
+the software, not to upstream benchmark data. The upload command also installs the reviewed
+[`examples/portal_tasks_dataset_card.md`](examples/portal_tasks_dataset_card.md) as the Hub dataset
+card so its source revisions, split construction, and mixed licensing remain attached to the data.
+
 For a cross-family Gemma 3 refit, provide Gemma's exact text decoder-layer path. This paper-scale
 example uses up to 2,000 calibration examples per task, runs all five epochs, and still restores the
 best held-out epoch:
