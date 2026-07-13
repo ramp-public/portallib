@@ -48,9 +48,13 @@ MODULES = {
 }
 
 
-def load_dataset(source: str) -> ChoiceDataset:
+def load_dataset(source: str, *, revision: str | None = None) -> ChoiceDataset:
     path = Path(source)
-    return ChoiceDataset.from_json(path) if path.is_file() else ChoiceDataset.from_hub(source)
+    if path.is_file():
+        if revision is not None:
+            raise ValueError("--dataset-revision is only valid for a Hugging Face dataset")
+        return ChoiceDataset.from_json(path)
+    return ChoiceDataset.from_hub(source, revision=revision)
 
 
 def load_base(
@@ -58,15 +62,23 @@ def load_base(
     *,
     device: torch.device,
     dtype: torch.dtype,
+    revision: str | None = None,
     layer_path: str = "model.layers",
 ) -> PortalBase:
     from transformers import AutoModelForCausalLM, AutoTokenizer
 
-    tokenizer = AutoTokenizer.from_pretrained(model_id)
+    tokenizer = AutoTokenizer.from_pretrained(model_id, revision=revision)
     if tokenizer.pad_token_id is None:
         tokenizer.pad_token = tokenizer.eos_token
-    model = AutoModelForCausalLM.from_pretrained(model_id, dtype=dtype).to(device)
-    return PortalBase(model_id=model_id, model=model, tokenizer=tokenizer, layer_path=layer_path)
+    model = AutoModelForCausalLM.from_pretrained(model_id, revision=revision, dtype=dtype).to(device)
+    resolved_revision = revision or getattr(model.config, "_commit_hash", None)
+    return PortalBase(
+        model_id=model_id,
+        model=model,
+        tokenizer=tokenizer,
+        revision=resolved_revision,
+        layer_path=layer_path,
+    )
 
 
 def slug(model_id: str) -> str:
@@ -94,6 +106,7 @@ def print_epoch(phase: str, epoch) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--dataset", required=True, help="normalized JSON path or Hugging Face dataset repo ID")
+    parser.add_argument("--dataset-revision", default=None, help="optional exact Hub dataset revision")
     parser.add_argument("--output", required=True)
     parser.add_argument(
         "--base-model",
@@ -107,7 +120,14 @@ def main() -> None:
         dest="base_layer_paths",
         help="exact decoder-layer path for the corresponding --base-model (default: model.layers)",
     )
+    parser.add_argument(
+        "--base-revision",
+        action="append",
+        dest="base_revisions",
+        help="exact Hub revision for the corresponding --base-model; repeat for every source base",
+    )
     parser.add_argument("--refit-base-model", default="")
+    parser.add_argument("--refit-revision", default=None, help="optional exact Hub revision for the refit base")
     parser.add_argument(
         "--refit-layer-path",
         default="model.layers",
@@ -138,7 +158,7 @@ def main() -> None:
     args = parser.parse_args()
 
     torch.manual_seed(args.seed)
-    dataset = load_dataset(args.dataset)
+    dataset = load_dataset(args.dataset, revision=args.dataset_revision)
     if args.push_dataset_to:
         dataset.push_to_hub(args.push_dataset_to, private=args.private_dataset)
     tasks = tuple(task.strip() for task in args.tasks.split(",") if task.strip()) or dataset.tasks
@@ -147,7 +167,10 @@ def main() -> None:
         parser.error("--base-model values must be unique")
     if args.base_layer_paths and len(args.base_layer_paths) != len(source_models):
         parser.error("repeat --base-layer-path once for every --base-model")
+    if args.base_revisions and len(args.base_revisions) != len(source_models):
+        parser.error("repeat --base-revision once for every --base-model")
     source_layer_paths = args.base_layer_paths or ["model.layers"] * len(source_models)
+    source_revisions = args.base_revisions or [None] * len(source_models)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     dtype = torch.bfloat16 if device.type == "cuda" else torch.float32
@@ -166,8 +189,10 @@ def main() -> None:
         checkpoint_dir=output / "checkpoints" / "source",
     )
     source_bases = [
-        load_base(model_id, device=device, dtype=dtype, layer_path=layer_path)
-        for model_id, layer_path in zip(source_models, source_layer_paths, strict=True)
+        load_base(model_id, device=device, dtype=dtype, revision=revision, layer_path=layer_path)
+        for model_id, revision, layer_path in zip(
+            source_models, source_revisions, source_layer_paths, strict=True
+        )
     ]
     source_result = PortalCoreTrainer(source_bases, dataset, tasks=tasks, config=recipe).train(
         on_epoch=lambda epoch: print_epoch("source", epoch)
@@ -212,6 +237,7 @@ def main() -> None:
         args.refit_base_model,
         device=device,
         dtype=dtype,
+        revision=args.refit_revision,
         layer_path=args.refit_layer_path,
     )
     refit_recipe = replace(recipe, checkpoint_dir=output / "checkpoints" / "refit")

@@ -72,7 +72,10 @@ refitting uses 500 examples per task. Both phases stop after one non-improving v
 default, restore the best-accuracy checkpoint, and report material per-task regressions from epoch zero.
 
 ```bash
-python examples/train_example.py --dataset tasks.json --output portal-example
+python examples/train_example.py \
+  --dataset RampPublic/portallib-tasks \
+  --dataset-revision fa00ae3fd84ab8ea93bccc898e28b8ac3f8c7d9c \
+  --output portal-example
 ```
 
 Repeat `--base-model` to share the task-latent table and canonical core across source bases.
@@ -96,6 +99,13 @@ python examples/train_example.py --dataset tasks.json --output portal-sources \
 
 The output directory contains the best-epoch source artifacts and the best-epoch refitted artifact.
 
+Published native source artifacts from the canonical 14-task run are available for
+[`Qwen3-1.7B`](https://huggingface.co/RampPublic/portallib-qwen3-1.7b) and
+[`Qwen3-4B`](https://huggingface.co/RampPublic/portallib-qwen3-4b). Both contain the identical shared
+core and task-latent table with a base-specific alignment. Load either with
+`PortalModel.from_pretrained(...)`, generate one task's factors in memory, or export an ordinary PEFT
+adapter.
+
 ### Prepare the canonical task data
 
 [`examples/prepare_dataset.py`](examples/prepare_dataset.py) downloads pinned revisions of the 14
@@ -112,7 +122,7 @@ default. Uploading the normalized dataset is a separate explicit operation:
 
 ```bash
 python examples/prepare_dataset.py --output portal_tasks.json \
-  --push-to-hub namespace/portal-tasks --private
+  --push-to-hub your-namespace/portal-tasks --private
 ```
 
 Review the terms of every selected upstream dataset before redistributing normalized rows. The
