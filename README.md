@@ -66,10 +66,11 @@ The exported directory is an ordinary PEFT adapter and reloads with
 [`examples/train_example.py`](examples/train_example.py) is thin orchestration around the public
 canonical trainer APIs. It freezes each base model, jointly learns shared task latents and a canonical
 core with one thin alignment per source base, evaluates epoch zero and every training epoch, restores
-the best held-out epoch, and writes one native artifact per base. Source training uses all available
-examples as its sampling pool and runs 1,000 balanced optimizer rounds per epoch by default. Target
-refitting uses 500 examples per task. Both phases stop after one non-improving validation epoch by
-default, restore the best-accuracy checkpoint, and report material per-task regressions from epoch zero.
+the best held-out epoch, and writes one native artifact per base. The defaults match the paper recipe:
+both source training and target refitting use at most 2,000 examples per task, source epochs derive
+their balanced-round count from the longest capped task, validation uses at most 1,000 examples per
+task, and all five epochs run before the best-accuracy checkpoint is restored. Both phases report
+material per-task regressions from epoch zero.
 
 ```bash
 python examples/train_example.py \
@@ -84,8 +85,7 @@ Repeat `--base-model` to share the task-latent table and canonical core across s
 ```bash
 python examples/train_example.py --dataset tasks.json --output portal-qwen \
   --base-model Qwen/Qwen3-1.7B --base-model Qwen/Qwen3-4B \
-  --refit-base-model Qwen/Qwen3-8B --source-steps-per-epoch 1000 \
-  --refit-max-train 500
+  --refit-base-model Qwen/Qwen3-8B
 ```
 
 Multiple source bases do not require a refit target. Without `--refit-base-model`, the example saves
@@ -106,6 +106,8 @@ core and task-latent table with a base-specific alignment. Load either with
 `PortalModel.from_pretrained(...)`, generate one task's factors in memory, or export an ordinary PEFT
 adapter. [`REPRODUCING.md`](REPRODUCING.md) records the exact published dataset and model revisions,
 complete training configuration, checkpoint-selection rule, command, and measured results.
+Those existing artifacts came from an earlier expanded-suite experiment; that document labels the
+difference from the paper recipe explicitly.
 
 ### Prepare the canonical task data
 
@@ -141,7 +143,7 @@ python examples/train_example.py --dataset tasks.json --output portal-gemma3 \
   --base-model Qwen/Qwen3-1.7B --base-model Qwen/Qwen3-4B \
   --refit-base-model google/gemma-3-4b-pt \
   --refit-layer-path model.language_model.layers \
-  --refit-max-train 2000 --epochs 5 --no-early-stopping
+  --refit-max-train 2000 --epochs 5
 ```
 
 Use repeated `--base-layer-path` values when a source model does not expose its decoder at the

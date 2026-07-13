@@ -1,4 +1,10 @@
-# Reproducing the published Qwen3 source artifacts
+# Reproducing PorTAL experiments
+
+The [PorTAL paper](https://app.notion.com/p/PorTAL-Portable-Task-Adapters-for-LLMs-3833d1a933618041bfcae511a8088ad4)
+is the authority for the paper-scale recipe. This document separates that recipe from the earlier
+expanded-suite experiment whose source artifacts are already public.
+
+## Published expanded-suite source artifacts
 
 This document records the exact data, model snapshots, training configuration, selection rule, and
 results for these native artifacts:
@@ -6,7 +12,7 @@ results for these native artifacts:
 - [`RampPublic/portallib-qwen3-1.7b`](https://huggingface.co/RampPublic/portallib-qwen3-1.7b)
 - [`RampPublic/portallib-qwen3-4b`](https://huggingface.co/RampPublic/portallib-qwen3-4b)
 
-## Data provenance
+### Data provenance
 
 The training job read a local normalized `dataset.json`. That file is exactly reproduced by
 `examples/prepare_dataset.py`: regenerating it produced the same 129,212 training rows, 19,548
@@ -22,7 +28,7 @@ Source training used every available training row as the sampling pool. It did n
 sequential pass through that pool. Each epoch contained 1,000 balanced optimizer rounds; every
 round drew one batch for each `(base, task)` pair, and shorter tasks recycled deterministically.
 
-## Pinned inputs
+### Pinned inputs
 
 | Input | Revision |
 |---|---|
@@ -36,7 +42,7 @@ The model revisions above were verified against the snapshot directories used by
 The canonical trainer, evaluator, and decoder in the pinned public revision are the implementations
 used to produce the artifacts.
 
-## Complete configuration
+### Complete published-artifact configuration
 
 | Setting | Value |
 |---|---:|
@@ -72,7 +78,7 @@ NLL reported separately.
 The saved shared checkpoint maximized mean validation `acc_norm` across both source bases, breaking
 ties with lower NLL. One non-improving epoch stopped training, and the trainer restored epoch 3.
 
-## Public reproduction command
+### Published source-artifact command
 
 Run from the pinned public portallib checkout after installing the `training` extra:
 
@@ -96,15 +102,66 @@ python examples/train_example.py \
   --seed 0
 ```
 
-This source-only form writes one artifact per source base. The original combined job then loaded
-Qwen3-8B and refit a fresh alignment with at most 500 examples per task. Source artifacts were saved
-before refitting; refit optimization cannot modify their frozen shared core or task latents.
+This source-only form writes one artifact per source base. The validation job that produced the
+published source artifacts also performed a reduced-data Qwen3-8B refit with at most 500 examples
+per task. That downstream check did not produce the source artifacts and is not the paper-scale
+refitting recipe. Source artifacts were saved before refitting; refit optimization cannot modify
+their frozen shared core or task latents.
 
 The remaining architecture and optimization values in the table are the canonical v0.1 defaults in
 `PortalTrainingConfig`. They are listed explicitly here so the recipe does not depend on readers
 discovering implicit defaults.
 
-## Recorded source results
+## Paper reproduction recipe
+
+The paper uses the complete 14-task suite. Both joint source training and target-base refitting cap
+each task at 2,000 training examples. With batch size 4, a full epoch has as many balanced optimizer
+rounds as the longest capped task has batches (at most 500); shorter tasks recycle. Evaluation caps
+each task at 1,000 examples and reports character-normalized choice accuracy (`acc_norm`) plus
+token-mean gold continuation NLL.
+
+The source bases are Qwen3-1.7B and Qwen3-4B. Qwen3-8B and Gemma-3-4B are unseen refit targets. Each
+phase evaluates epoch zero and every one of five training epochs. The saved checkpoint maximizes
+macro validation `acc_norm`, breaking ties with lower NLL; the minimum-NLL epoch is also reported.
+No early stopping is used in the paper recipe.
+
+The complete source-training plus Qwen3-8B paper-scale command is:
+
+```bash
+python examples/train_example.py \
+  --dataset RampPublic/portallib-tasks \
+  --dataset-revision 3f0a5e6e028a56cf6029bb4761df97d0ff36731d \
+  --output portal-qwen3-14task-paper-s0 \
+  --base-model Qwen/Qwen3-1.7B \
+  --base-revision 70d244cc86ccca08cf5af4e1e306ecf908b1ad5e \
+  --base-model Qwen/Qwen3-4B \
+  --base-revision 1cfa9a7208912126459214e8b04321603b3df60c \
+  --refit-base-model Qwen/Qwen3-8B \
+  --refit-revision b968826d9c46dd6066d109eabc6255188de91218 \
+  --modules qv \
+  --source-max-train 2000 \
+  --source-steps-per-epoch 0 \
+  --refit-max-train 2000 \
+  --eval-max-examples 1000 \
+  --epochs 5 \
+  --early-stopping-patience 0 \
+  --batch-size 4 \
+  --learning-rate 0.001 \
+  --latent-learning-rate 0.002 \
+  --seed 0
+```
+
+The zero values for `--source-steps-per-epoch` and `--early-stopping-patience` mean “derive a full
+epoch” and “run every epoch,” respectively. Seeds 0, 1, and 2 reproduce the paper's three-seed
+protocol. For Gemma, replace the refit model and revision and add
+`--refit-layer-path model.language_model.layers`.
+
+The currently published source artifacts cannot seed a paper reproduction because their shared core
+was trained with the expanded-suite settings documented above. A paper run must retrain the shared
+core and task latents before refitting an unseen base. New paper artifacts will only be published
+after the validation run is complete; stopped or failed runs are not validation evidence.
+
+### Recorded expanded-suite source results
 
 | Base | Epoch-zero `acc_norm` | Selected epoch-3 `acc_norm` | Change |
 |---|---:|---:|---:|

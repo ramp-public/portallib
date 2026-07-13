@@ -30,9 +30,10 @@ class PortalTrainingConfig:
     d_layer: int = 32
     hidden: int = 512
     d_core: int = 1024
-    source_max_examples: int | None = None
-    source_steps_per_epoch: int = 1000
-    refit_max_examples: int = 500
+    source_max_examples: int | None = 2000
+    source_steps_per_epoch: int | None = None
+    refit_max_examples: int = 2000
+    eval_max_examples: int | None = 1000
     epochs: int = 5
     batch_size: int = 4
     learning_rate: float = 1e-3
@@ -44,23 +45,21 @@ class PortalTrainingConfig:
     max_prompt: int = 768
     seed: int = 0
     gradient_checkpointing: bool = True
-    early_stopping_patience: int | None = 1
+    early_stopping_patience: int | None = None
     task_regression_threshold: float = 0.05
     checkpoint_dir: Path | None = None
 
     def __post_init__(self) -> None:
         positive = (self.rank, self.alpha, self.d_z, self.d_layer, self.hidden, self.d_core)
-        counts = (
-            self.source_steps_per_epoch,
-            self.refit_max_examples,
-            self.epochs,
-            self.batch_size,
-            self.max_prompt,
-        )
+        counts = (self.refit_max_examples, self.epochs, self.batch_size, self.max_prompt)
         if any(value <= 0 for value in (*positive, *counts)):
             raise ValueError("architecture dimensions and training counts must be positive")
         if self.source_max_examples is not None and self.source_max_examples <= 0:
             raise ValueError("source_max_examples must be positive or None for all examples")
+        if self.source_steps_per_epoch is not None and self.source_steps_per_epoch <= 0:
+            raise ValueError("source_steps_per_epoch must be positive or None for a full epoch")
+        if self.eval_max_examples is not None and self.eval_max_examples <= 0:
+            raise ValueError("eval_max_examples must be positive or None for all examples")
         if self.early_stopping_patience is not None and self.early_stopping_patience <= 0:
             raise ValueError("early_stopping_patience must be positive or None")
         if self.task_regression_threshold < 0:
@@ -248,6 +247,7 @@ class PortalCoreTrainer:
                 self.dataset,
                 tasks=self.tasks,
                 portal=self._portal(base),
+                max_examples=self.recipe.eval_max_examples,
             )
             for base in self.bases
         }
@@ -291,7 +291,9 @@ class PortalCoreTrainer:
             ]
             for task_index, rows in task_rows.items()
         }
-        rounds = self.recipe.source_steps_per_epoch
+        rounds = self.recipe.source_steps_per_epoch or max(
+            len(task_batches) for task_batches in batches.values()
+        )
         decoder_parameters = list(self.core.parameters()) + [
             parameter for alignment in self.alignments.values() for parameter in alignment.parameters()
         ]
@@ -485,6 +487,7 @@ class PortalAdapterRefitter:
             self.dataset,
             tasks=self.tasks,
             portal=self._portal(),
+            max_examples=self.recipe.eval_max_examples,
         )
         return EpochMetrics(epoch, {self.target.model_id: result}, result.macro_accuracy, result.macro_gold_nll)
 

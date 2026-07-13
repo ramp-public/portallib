@@ -22,7 +22,7 @@ Cross-family refitting to Gemma 3 uses its exact decoder-layer path::
       --base-model Qwen/Qwen3-1.7B --base-model Qwen/Qwen3-4B \
       --refit-base-model google/gemma-3-4b-pt \
       --refit-layer-path model.language_model.layers \
-      --refit-max-train 2000 --no-early-stopping
+      --refit-max-train 2000
 """
 
 from __future__ import annotations
@@ -138,16 +138,28 @@ def main() -> None:
     parser.add_argument(
         "--source-max-train",
         type=int,
-        default=0,
-        help="examples per source task; 0 uses all available examples",
+        default=2000,
+        help="examples per source task (paper: 2000); 0 uses all available examples",
     )
-    parser.add_argument("--source-steps-per-epoch", type=int, default=1000)
-    parser.add_argument("--refit-max-train", type=int, default=500)
+    parser.add_argument(
+        "--source-steps-per-epoch",
+        type=int,
+        default=0,
+        help="balanced rounds per epoch; 0 derives a full epoch from the longest capped task",
+    )
+    parser.add_argument("--refit-max-train", type=int, default=2000)
+    parser.add_argument(
+        "--eval-max-examples",
+        type=int,
+        default=1000,
+        help="validation examples per task (paper: 1000); 0 evaluates all available examples",
+    )
     parser.add_argument("--epochs", type=int, default=5)
     parser.add_argument(
-        "--no-early-stopping",
-        action="store_true",
-        help="run every configured epoch and still restore the best held-out epoch",
+        "--early-stopping-patience",
+        type=int,
+        default=0,
+        help="stop after this many non-improving epochs; 0 runs all epochs and restores the best",
     )
     parser.add_argument("--batch-size", type=int, default=4)
     parser.add_argument("--learning-rate", type=float, default=1e-3)
@@ -178,14 +190,15 @@ def main() -> None:
     recipe = PortalTrainingConfig(
         modules=MODULES[args.modules],
         source_max_examples=args.source_max_train or None,
-        source_steps_per_epoch=args.source_steps_per_epoch,
+        source_steps_per_epoch=args.source_steps_per_epoch or None,
         refit_max_examples=args.refit_max_train,
+        eval_max_examples=args.eval_max_examples or None,
         epochs=args.epochs,
         batch_size=args.batch_size,
         learning_rate=args.learning_rate,
         latent_learning_rate=args.latent_learning_rate,
         seed=args.seed,
-        early_stopping_patience=None if args.no_early_stopping else 1,
+        early_stopping_patience=args.early_stopping_patience or None,
         checkpoint_dir=output / "checkpoints" / "source",
     )
     source_bases = [

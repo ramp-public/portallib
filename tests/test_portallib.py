@@ -441,3 +441,46 @@ def test_balanced_core_training_and_frozen_refit_contract() -> None:
     for name, value in source_core.items():
         torch.testing.assert_close(refit.artifact.decoder.core.state_dict()[name], value)
     torch.testing.assert_close(refit.artifact.task_latents, source.task_latents)
+
+
+def test_paper_training_defaults() -> None:
+    recipe = PortalTrainingConfig()
+
+    assert recipe.source_max_examples == 2000
+    assert recipe.source_steps_per_epoch is None
+    assert recipe.refit_max_examples == 2000
+    assert recipe.eval_max_examples == 1000
+    assert recipe.epochs == 5
+    assert recipe.batch_size == 4
+    assert recipe.early_stopping_patience is None
+
+
+def test_source_rounds_are_derived_from_longest_capped_task() -> None:
+    dataset = make_dataset()
+    recipe = PortalTrainingConfig(
+        rank=2,
+        alpha=4,
+        d_z=3,
+        d_layer=2,
+        hidden=5,
+        d_core=3,
+        source_max_examples=3,
+        source_steps_per_epoch=None,
+        refit_max_examples=1,
+        eval_max_examples=1,
+        epochs=1,
+        batch_size=2,
+        gradient_checkpointing=False,
+    )
+
+    result = PortalCoreTrainer(
+        [PortalBase("toy/one", ToyCausalLM(seed=1), ToyTokenizer())],
+        dataset,
+        config=recipe,
+    ).train()
+
+    assert result.diagnostics["steps_per_epoch"] == 2
+    assert result.diagnostics["source_examples_per_task"] == {"alpha": 3, "beta": 3}
+    for epoch in result.history:
+        for task in epoch.evaluations["toy/one"].tasks.values():
+            assert task.examples == 1
