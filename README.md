@@ -1,5 +1,7 @@
 # PorTAL: Portable Task Adapters for LLMs
 
+![PorTAL wordmark passing through two portals](docs/assets/portal_header.png)
+
 > Alpha research release accompanying
 > [PorTAL: Portable Task Adapters for LLMs](https://app.notion.com/p/PorTAL-Portable-Task-Adapters-for-LLMs-3833d1a933618041bfcae511a8088ad4).
 > APIs and artifact schemas may evolve before the first stable release.
