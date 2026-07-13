@@ -3,8 +3,8 @@
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/assets/portal_header_dark.png">
-    <source media="(prefers-color-scheme: light)" srcset="docs/assets/portal_header_light.png">
-    <img src="docs/assets/portal_header_light.png" width="560" alt="PorTAL wordmark passing through two portals">
+    <source media="(prefers-color-scheme: light)" srcset="docs/assets/portal_header_light_v2.png">
+    <img src="docs/assets/portal_header_light_v2.png" width="560" alt="PorTAL wordmark passing through two portals">
   </picture>
 </p>
 
