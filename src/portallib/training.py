@@ -31,6 +31,7 @@ class PortalTrainingConfig:
     hidden: int = 512
     d_core: int = 1024
     source_max_examples: int | None = 2000
+    source_resample_each_epoch: bool = True
     source_steps_per_epoch: int | None = None
     refit_max_examples: int = 2000
     eval_max_examples: int | None = 1000
@@ -278,21 +279,17 @@ class PortalCoreTrainer:
         _write_metrics(root / "metrics.json", metrics)
 
     def train(self, *, on_epoch: Callable[[EpochMetrics], None] | None = None) -> CoreTrainingResult:
-        task_rows = {
-            task_index: list(
-                self.dataset.rows("train", task, limit=self.recipe.source_max_examples)
-            )
+        task_pools = {
+            task_index: list(self.dataset.rows("train", task))
             for task_index, task in enumerate(self.tasks)
         }
-        batches = {
-            task_index: [
-                rows[offset : offset + self.recipe.batch_size]
-                for offset in range(0, len(rows), self.recipe.batch_size)
-            ]
-            for task_index, rows in task_rows.items()
+        task_sizes = {
+            task_index: min(self.recipe.source_max_examples or len(rows), len(rows))
+            for task_index, rows in task_pools.items()
         }
         rounds = self.recipe.source_steps_per_epoch or max(
-            len(task_batches) for task_batches in batches.values()
+            (size + self.recipe.batch_size - 1) // self.recipe.batch_size
+            for size in task_sizes.values()
         )
         decoder_parameters = list(self.core.parameters()) + [
             parameter for alignment in self.alignments.values() for parameter in alignment.parameters()
@@ -324,6 +321,24 @@ class PortalCoreTrainer:
                 on_epoch(initial)
             self._checkpoint(0, initial, best_snapshot)
             for epoch in range(1, self.recipe.epochs + 1):
+                epoch_rows: dict[int, list[ChoiceExample]] = {}
+                for task_index, pool in task_pools.items():
+                    size = task_sizes[task_index]
+                    if size == len(pool):
+                        epoch_rows[task_index] = list(pool)
+                    elif self.recipe.source_resample_each_epoch:
+                        epoch_rows[task_index] = random.Random(
+                            self.recipe.seed * 1_000_003 + epoch * 10_007 + task_index * 131 + size
+                        ).sample(pool, size)
+                    else:
+                        epoch_rows[task_index] = list(pool[:size])
+                batches = {
+                    task_index: [
+                        rows[offset : offset + self.recipe.batch_size]
+                        for offset in range(0, len(rows), self.recipe.batch_size)
+                    ]
+                    for task_index, rows in epoch_rows.items()
+                }
                 self.core.train()
                 for alignment in self.alignments.values():
                     alignment.train()
@@ -422,9 +437,14 @@ class PortalCoreTrainer:
                 "steps_per_epoch": rounds,
                 "units_per_step": len(self.bases) * len(self.tasks),
                 "source_examples_per_task": {
-                    task: len(task_rows[task_index])
+                    task: task_sizes[task_index]
                     for task_index, task in enumerate(self.tasks)
                 },
+                "source_pool_examples_per_task": {
+                    task: len(task_pools[task_index])
+                    for task_index, task in enumerate(self.tasks)
+                },
+                "source_resample_each_epoch": self.recipe.source_resample_each_epoch,
                 "epochs_completed": history[-1].epoch,
                 "task_regressions": _task_regressions(
                     initial_metrics,

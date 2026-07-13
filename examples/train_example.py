@@ -147,6 +147,11 @@ def main() -> None:
         default=0,
         help="balanced rounds per epoch; 0 derives a full epoch from the longest capped task",
     )
+    parser.add_argument(
+        "--static-source-subset",
+        action="store_true",
+        help="reuse the same leading source subset every epoch instead of drawing fresh deterministic subsets",
+    )
     parser.add_argument("--refit-max-train", type=int, default=2000)
     parser.add_argument(
         "--eval-max-examples",
@@ -190,6 +195,7 @@ def main() -> None:
     recipe = PortalTrainingConfig(
         modules=MODULES[args.modules],
         source_max_examples=args.source_max_train or None,
+        source_resample_each_epoch=not args.static_source_subset,
         source_steps_per_epoch=args.source_steps_per_epoch or None,
         refit_max_examples=args.refit_max_train,
         eval_max_examples=args.eval_max_examples or None,
@@ -229,6 +235,12 @@ def main() -> None:
                     "epochs_completed": source_result.diagnostics["epochs_completed"],
                     "task_regressions": source_result.diagnostics["task_regressions"],
                     "source_examples_per_task": source_result.diagnostics["source_examples_per_task"],
+                    "source_pool_examples_per_task": source_result.diagnostics[
+                        "source_pool_examples_per_task"
+                    ],
+                    "source_resample_each_epoch": source_result.diagnostics[
+                        "source_resample_each_epoch"
+                    ],
                     "outputs": {
                         model_id: str(artifact_output)
                         for model_id, artifact_output in artifact_outputs.items()
@@ -271,6 +283,12 @@ def main() -> None:
                 "source_task_regressions": source_result.diagnostics["task_regressions"],
                 "refit_task_regressions": refit_result.diagnostics["task_regressions"],
                 "source_examples_per_task": source_result.diagnostics["source_examples_per_task"],
+                "source_pool_examples_per_task": source_result.diagnostics[
+                    "source_pool_examples_per_task"
+                ],
+                "source_resample_each_epoch": source_result.diagnostics[
+                    "source_resample_each_epoch"
+                ],
                 "refit_examples_per_task": refit_result.diagnostics["refit_examples_per_task"],
                 "output": str(refit_output),
             }

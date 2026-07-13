@@ -443,10 +443,11 @@ def test_balanced_core_training_and_frozen_refit_contract() -> None:
     torch.testing.assert_close(refit.artifact.task_latents, source.task_latents)
 
 
-def test_paper_training_defaults() -> None:
+def test_expanded_training_defaults() -> None:
     recipe = PortalTrainingConfig()
 
     assert recipe.source_max_examples == 2000
+    assert recipe.source_resample_each_epoch is True
     assert recipe.source_steps_per_epoch is None
     assert recipe.refit_max_examples == 2000
     assert recipe.eval_max_examples == 1000
@@ -481,6 +482,8 @@ def test_source_rounds_are_derived_from_longest_capped_task() -> None:
 
     assert result.diagnostics["steps_per_epoch"] == 2
     assert result.diagnostics["source_examples_per_task"] == {"alpha": 3, "beta": 3}
+    assert result.diagnostics["source_pool_examples_per_task"] == {"alpha": 4, "beta": 4}
+    assert result.diagnostics["source_resample_each_epoch"] is True
     for epoch in result.history:
         for task in epoch.evaluations["toy/one"].tasks.values():
             assert task.examples == 1

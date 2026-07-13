@@ -108,9 +108,8 @@ per task. That downstream check did not produce the source artifacts and is not 
 refitting recipe. Source artifacts were saved before refitting; refit optimization cannot modify
 their frozen shared core or task latents.
 
-The remaining architecture and optimization values in the table are the canonical v0.1 defaults in
-`PortalTrainingConfig`. They are listed explicitly here so the recipe does not depend on readers
-discovering implicit defaults.
+The remaining architecture and optimization values in the table are listed explicitly so this
+historical recipe does not depend on current defaults.
 
 ## Paper reproduction recipe
 
@@ -140,6 +139,7 @@ python examples/train_example.py \
   --refit-revision b968826d9c46dd6066d109eabc6255188de91218 \
   --modules qv \
   --source-max-train 2000 \
+  --static-source-subset \
   --source-steps-per-epoch 0 \
   --refit-max-train 2000 \
   --eval-max-examples 1000 \
@@ -151,7 +151,10 @@ python examples/train_example.py \
   --seed 0
 ```
 
-The zero values for `--source-steps-per-epoch` and `--early-stopping-patience` mean “derive a full
+`--static-source-subset` preserves the paper's fixed source subset. Without it, portallib's expanded
+default draws a new deterministic capped subset each epoch so the shared core can see more of the
+available source data at the same number of balanced rounds. The zero values for
+`--source-steps-per-epoch` and `--early-stopping-patience` mean “derive a full
 epoch” and “run every epoch,” respectively. Seeds 0, 1, and 2 reproduce the paper's three-seed
 protocol. For Gemma, replace the refit model and revision and add
 `--refit-layer-path model.language_model.layers`.

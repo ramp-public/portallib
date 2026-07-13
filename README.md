@@ -66,11 +66,12 @@ The exported directory is an ordinary PEFT adapter and reloads with
 [`examples/train_example.py`](examples/train_example.py) is thin orchestration around the public
 canonical trainer APIs. It freezes each base model, jointly learns shared task latents and a canonical
 core with one thin alignment per source base, evaluates epoch zero and every training epoch, restores
-the best held-out epoch, and writes one native artifact per base. The defaults match the paper recipe:
-both source training and target refitting use at most 2,000 examples per task, source epochs derive
-their balanced-round count from the longest capped task, validation uses at most 1,000 examples per
-task, and all five epochs run before the best-accuracy checkpoint is restored. Both phases report
-material per-task regressions from epoch zero.
+the best held-out epoch, and writes one native artifact per base. The defaults are an expanded
+performance recipe: every source epoch draws a fresh deterministic, task-balanced subset of up to
+2,000 examples from the full pool, exposing more source data across training without lengthening the
+paper's balanced epoch. Target refitting remains a thin 2,000-example alignment fit. Validation uses
+up to 1,000 examples per task, and all five epochs run before the best-accuracy checkpoint is
+restored. Both phases report material per-task regressions from epoch zero.
 
 ```bash
 python examples/train_example.py \
