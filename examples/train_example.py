@@ -139,7 +139,7 @@ def main() -> None:
         "--source-max-train",
         type=int,
         default=2000,
-        help="examples per source task (paper: 2000); 0 uses all available examples",
+        help="examples per source task and epoch; 0 uses all available examples",
     )
     parser.add_argument(
         "--source-steps-per-epoch",
@@ -157,7 +157,7 @@ def main() -> None:
         "--eval-max-examples",
         type=int,
         default=1000,
-        help="validation examples per task (paper: 1000); 0 evaluates all available examples",
+        help="validation examples per task; 0 evaluates all available examples",
     )
     parser.add_argument("--epochs", type=int, default=5)
     parser.add_argument(

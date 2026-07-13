@@ -1,4 +1,4 @@
-"""Exact-path adapter injection and paper-faithful multiple-choice evaluation."""
+"""Exact-path adapter injection and multiple-choice evaluation."""
 
 from __future__ import annotations
 
@@ -169,7 +169,7 @@ def gold_batch(
 
 
 class PortalEvaluator:
-    """Evaluate base or PorTAL-adapted models with the paper's metrics."""
+    """Evaluate base or PorTAL-adapted models with normalized choice metrics."""
 
     def __init__(self, *, max_prompt: int = 768) -> None:
         self.max_prompt = max_prompt

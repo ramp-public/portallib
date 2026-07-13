@@ -10,14 +10,14 @@ per-layer LoRA weights. A task can be trained once, adapted to supported frozen 
 exported as a standard Hugging Face PEFT adapter.
 
 `portallib` is an alpha Python library for loading, training, saving, publishing, and exporting
-PorTAL artifacts. It has no Modal or research-backend dependency.
+PorTAL artifacts with standard PyTorch and Hugging Face interfaces.
 
 ![PorTAL source training and target-base refitting phases](docs/assets/portal_phases.gif)
 
 During source training, PorTAL jointly learns the task-latent table, one shared canonical core, and
 one alignment for each source base. To port the learned tasks, it freezes the latent table and core
 and refits only a fresh alignment for the target base. The resulting task adapter is exportable as
-an ordinary PEFT LoRA adapter; using it does not require the trainer or a research backend.
+an ordinary PEFT LoRA adapter.
 
 ## Install
 
@@ -61,12 +61,10 @@ The exported directory is an ordinary PEFT adapter and reloads with
 [`examples/train_example.py`](examples/train_example.py) is thin orchestration around the public
 canonical trainer APIs. It freezes each base model, jointly learns shared task latents and a canonical
 core with one thin alignment per source base, evaluates epoch zero and every training epoch, restores
-the best held-out epoch, and writes one native artifact per base. The defaults are an expanded
-performance recipe: every source epoch draws a fresh deterministic, task-balanced subset of up to
-2,000 examples from the full pool, exposing more source data across training without lengthening the
-paper's balanced epoch. Target refitting remains a thin 2,000-example alignment fit. Validation uses
-up to 1,000 examples per task, and all five epochs run before the best-accuracy checkpoint is
-restored. Both phases report material per-task regressions from epoch zero.
+the best held-out epoch, and writes one native artifact per base. Every source epoch draws a fresh
+deterministic, task-balanced subset of up to 2,000 examples from the full pool. Validation uses up to
+1,000 examples per task, and all five epochs run before the best-accuracy checkpoint is restored.
+Both phases report material per-task regressions from epoch zero.
 
 ```bash
 python examples/train_example.py \
@@ -95,21 +93,14 @@ python examples/train_example.py --dataset tasks.json --output portal-sources \
 
 The output directory contains the best-epoch source artifacts and the best-epoch refitted artifact.
 
-Published native source artifacts from the canonical 14-task run are available for
-[`Qwen3-1.7B`](https://huggingface.co/RampPublic/portallib-qwen3-1.7b) and
-[`Qwen3-4B`](https://huggingface.co/RampPublic/portallib-qwen3-4b). Both contain the identical shared
-core and task-latent table with a base-specific alignment. Load either with
-`PortalModel.from_pretrained(...)`, generate one task's factors in memory, or export an ordinary PEFT
-adapter. [`REPRODUCING.md`](REPRODUCING.md) records the exact published dataset and model revisions,
-complete training configuration, checkpoint-selection rule, command, and measured results.
-Those existing artifacts came from an earlier expanded-suite experiment; that document labels the
-difference from the paper recipe explicitly.
+[`REPRODUCING.md`](REPRODUCING.md) records pinned dataset and model revisions, the complete training
+configuration, checkpoint selection, and source/Qwen/Gemma recipes.
 
 ### Prepare the canonical task data
 
 [`examples/prepare_dataset.py`](examples/prepare_dataset.py) downloads pinned revisions of the 14
 upstream benchmark datasets and reproduces the exact prompt and choice normalization used by the
-paper-scale examples:
+training examples:
 
 ```bash
 python examples/prepare_dataset.py --output portal_tasks.json
@@ -130,9 +121,7 @@ the software, not to upstream benchmark data. The upload command also installs t
 [`examples/portal_tasks_dataset_card.md`](examples/portal_tasks_dataset_card.md) as the Hub dataset
 card so its source revisions, split construction, and mixed licensing remain attached to the data.
 
-For a cross-family Gemma 3 refit, provide Gemma's exact text decoder-layer path. This paper-scale
-example uses up to 2,000 calibration examples per task, runs all five epochs, and still restores the
-best held-out epoch:
+For a cross-family Gemma 3 refit, provide Gemma's exact text decoder-layer path:
 
 ```bash
 python examples/train_example.py --dataset tasks.json --output portal-gemma3 \
@@ -174,8 +163,8 @@ cases, the base model parameters remain frozen.
 
 ## Model compatibility
 
-The current alpha has end-to-end validation on Qwen3 and cross-family refitting validation on
-Gemma 3. Qwen3 exposes decoder layers at `model.layers`; Gemma 3 exposes its text decoder at
+PorTAL supports Qwen3 and cross-family refitting to Gemma 3. Qwen3 exposes decoder layers at
+`model.layers`; Gemma 3 exposes its text decoder at
 `model.language_model.layers`. The default projection paths cover the usual query, key, value,
 attention-output, and gated-MLP linear modules used by those families.
 
@@ -229,5 +218,4 @@ PorTAL is licensed under Apache-2.0.
 
 ## Citation
 
-If you use PorTAL, cite the software metadata in [`CITATION.cff`](CITATION.cff). A paper citation
-will replace it if an archival publication becomes available.
+If you use PorTAL, cite the software metadata in [`CITATION.cff`](CITATION.cff).

@@ -45,7 +45,7 @@ class PortalModel(
     license="apache-2.0",
     tags=["lora", "peft", "portal"],
     repo_url="https://github.com/ramp-public/portallib",
-    docs_url="https://github.com/ramp-public/portallib#portallib-alpha",
+    docs_url="https://github.com/ramp-public/portallib#readme",
     model_card_template=_MODEL_CARD_TEMPLATE,
 ):
     """A set of shared task latents and one decoder for a supported base model."""

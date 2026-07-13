@@ -11,7 +11,7 @@ size_categories:
 
 # PorTAL 14-Task Multiple-Choice Suite
 
-This dataset is the normalized task suite used by the paper-scale examples in
+This dataset is the normalized task suite used by the training examples in
 [portallib](https://github.com/ramp-public/portallib). It contains 129,212 training examples and
 19,548 validation examples. Each row has the following fields:
 
@@ -57,5 +57,5 @@ The canonical JSON serialization has SHA-256
 `c5aec929f1800a3f1f4b3150aa1c9e464356fdb0cd11645c29df5b78efcdec00`.
 
 TruthfulQA exposes one labeled split, so the first 75% is used for training and the final 25% for
-validation, matching the published run. Every other task uses its upstream `train` and `validation`
+validation. Every other task uses its upstream `train` and `validation`
 splits directly. No test labels are included.

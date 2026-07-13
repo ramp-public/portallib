@@ -1,7 +1,7 @@
 """Prepare the normalized 14-task dataset used by the PorTAL training example.
 
 The script downloads the original datasets from Hugging Face, applies the exact
-multiple-choice prompts used for the paper-scale portallib runs, and writes the
+multiple-choice prompts used by the portallib training recipes, and writes the
 ``ChoiceDataset`` JSON schema consumed by ``examples/train_example.py``.
 
 Examples:

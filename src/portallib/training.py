@@ -1,4 +1,4 @@
-"""Paper-faithful canonical PorTAL core training and adapter refitting."""
+"""Canonical PorTAL core training and adapter refitting."""
 
 from __future__ import annotations
 
