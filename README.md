@@ -11,6 +11,8 @@ exported as a standard Hugging Face PEFT adapter.
 `portallib` is an alpha Python library for loading, training, saving, publishing, and exporting
 PorTAL artifacts. It has no Modal or research-backend dependency.
 
+![PorTAL source training and target-base refitting phases](docs/assets/portal_phases.gif)
+
 ```mermaid
 flowchart LR
     Z["Shared task latent z"] --> C["Canonical LoRA core"]
