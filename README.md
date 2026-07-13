@@ -1,7 +1,11 @@
 # PorTAL: Portable Task Adapters for LLMs
 
 <p align="center">
-  <img src="docs/assets/portal_header_compact.png" width="560" alt="PorTAL wordmark passing through two portals">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/portal_header_dark.png">
+    <source media="(prefers-color-scheme: light)" srcset="docs/assets/portal_header_light.png">
+    <img src="docs/assets/portal_header_light.png" width="560" alt="PorTAL wordmark passing through two portals">
+  </picture>
 </p>
 
 > Alpha research release [announced by Ramp Labs](https://x.com/RampLabs/status/2072381992285647280).
