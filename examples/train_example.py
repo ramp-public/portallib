@@ -11,6 +11,11 @@ Shared-core training followed by frozen-core/latent refitting::
       --base-model Qwen/Qwen3-1.7B --base-model Qwen/Qwen3-4B \
       --refit-base-model Qwen/Qwen3-8B
 
+Shared-core source training can also save one artifact per source without refitting::
+
+    python examples/train_example.py --dataset tasks.json --output portal-sources \
+      --base-model Qwen/Qwen3-1.7B --base-model Qwen/Qwen3-4B
+
 Cross-family refitting to Gemma 3 uses its exact decoder-layer path::
 
     python examples/train_example.py --dataset tasks.json --output portal-gemma3 \
@@ -169,9 +174,16 @@ def main() -> None:
     )
 
     if not args.refit_base_model:
-        if len(source_models) != 1:
-            parser.error("multiple source bases require --refit-base-model")
-        source_result.artifacts[source_models[0]].save_pretrained(output)
+        if len(source_models) == 1:
+            artifact_outputs = {source_models[0]: output}
+        else:
+            output.mkdir(parents=True, exist_ok=True)
+            artifact_outputs = {
+                model_id: output / f"source-{slug(model_id)}"
+                for model_id in source_models
+            }
+        for model_id, artifact_output in artifact_outputs.items():
+            source_result.artifacts[model_id].save_pretrained(artifact_output)
         print(
             json.dumps(
                 {
@@ -179,7 +191,10 @@ def main() -> None:
                     "epochs_completed": source_result.diagnostics["epochs_completed"],
                     "task_regressions": source_result.diagnostics["task_regressions"],
                     "source_examples_per_task": source_result.diagnostics["source_examples_per_task"],
-                    "output": str(output),
+                    "outputs": {
+                        model_id: str(artifact_output)
+                        for model_id, artifact_output in artifact_outputs.items()
+                    },
                 }
             ),
             flush=True,

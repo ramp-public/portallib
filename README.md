@@ -85,6 +85,15 @@ python examples/train_example.py --dataset tasks.json --output portal-qwen \
   --refit-max-train 500
 ```
 
+Multiple source bases do not require a refit target. Without `--refit-base-model`, the example saves
+one base-specific source artifact per model under `source-<model>` while retaining the identical
+shared task latents and canonical core in each artifact:
+
+```bash
+python examples/train_example.py --dataset tasks.json --output portal-sources \
+  --base-model Qwen/Qwen3-1.7B --base-model Qwen/Qwen3-4B
+```
+
 The output directory contains the best-epoch source artifacts and the best-epoch refitted artifact.
 
 For a cross-family Gemma 3 refit, provide Gemma's exact text decoder-layer path. This paper-scale

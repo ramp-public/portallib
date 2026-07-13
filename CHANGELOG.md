@@ -18,6 +18,7 @@ All notable changes to `portallib` are documented here.
   paper-scale Qwen-to-Gemma-3 refit invocation.
 - Add paper, citation, architecture, compatibility, and public artifact-release guidance.
 - Point package, citation, and model-card metadata at the public `ramp-public/portallib` repository.
+- Allow multi-source core training to save one artifact per source without requiring a refit target.
 - Add balanced task rounds, EMA loss normalization, per-base latent-gradient balancing, and
   best-epoch checkpoint selection.
 - Separate source and refit data budgets: use all source examples by default and 500 examples per
