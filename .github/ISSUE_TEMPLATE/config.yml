@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Report a security vulnerability
+    url: https://github.com/ramp-public/portallib/security/advisories/new
+    about: Submit suspected vulnerabilities privately instead of opening a public issue.

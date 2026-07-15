@@ -1,0 +1,36 @@
+name: Feature request
+description: Propose a focused improvement to portallib.
+title: "[Feature]: "
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or use case
+      description: Describe the concrete workflow that is difficult or unsupported today.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+      description: Explain the smallest public behavior or API change that would address the use case.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Include current workarounds or designs you considered.
+  - type: textarea
+    id: compatibility
+    attributes:
+      label: Models and compatibility
+      description: List affected model families, exact module paths, artifact schemas, or PEFT behavior when relevant.
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Submission checks
+      options:
+        - label: I searched existing issues and pull requests.
+          required: true
+        - label: I am willing to contribute an implementation.
