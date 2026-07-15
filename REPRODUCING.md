@@ -30,11 +30,46 @@ when the default PyPI wheel is not appropriate.
 | `Qwen/Qwen3-8B` | `b968826d9c46dd6066d109eabc6255188de91218` |
 | `google/gemma-3-4b-pt` | `cc012e0a6d0787b4adcc0fa2c4da74402494554d` |
 
-[`scripts/prepare_dataset.py`](scripts/prepare_dataset.py) reconstructs the normalized dataset from
-pinned upstream revisions. The generated JSON contains 129,212 training rows and 19,548 validation
-rows. Its SHA-256 is
+## Rebuild the canonical task data
+
+[`scripts/prepare_dataset.py`](scripts/prepare_dataset.py) downloads pinned revisions of the 14
+upstream benchmarks and reproduces the prompt and choice normalization used by the release recipes:
+
+```bash
+python scripts/prepare_dataset.py --output portal_tasks.json
+```
+
+The generated JSON contains 129,212 training rows and 19,548 validation rows. Its SHA-256 is
 `c5aec929f1800a3f1f4b3150aa1c9e464356fdb0cd11645c29df5b78efcdec00`, allowing a locally rebuilt
-copy to be checked against the release input.
+copy to be checked against the pinned Hub input. To train from the local file, set
+`DATASET = "portal_tasks.json"` and `DATASET_REVISION = None` in the example recipe.
+
+Pass `--tasks rte,boolq` to prepare a smaller subset. The script writes locally by default. Dataset
+publication is an explicit operation:
+
+```bash
+python scripts/prepare_dataset.py --output portal_tasks.json \
+  --push-to-hub your-namespace/portal-tasks --private
+```
+
+The upload includes [`scripts/portal_tasks_dataset_card.md`](scripts/portal_tasks_dataset_card.md)
+in the same Hub commit as the normalized splits. Review the terms of every selected upstream
+dataset before redistributing rows: portallib's Apache-2.0 license covers the software, not the
+mixed-license benchmark collection.
+
+The input is either a local JSON file or a Hugging Face dataset repository with `train` and
+`validation` splits. Each row uses this schema:
+
+```json
+{
+  "task": "rte",
+  "prompt": "Premise: ...\nHypothesis: ...\nEntailment?",
+  "choices": [" yes", " no"],
+  "gold_idx": 0
+}
+```
+
+A local JSON file wraps these rows in `train` and `validation` arrays.
 
 ## Shared architecture and evaluation
 

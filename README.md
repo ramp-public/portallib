@@ -80,7 +80,7 @@ The exported directory is an ordinary PEFT adapter and reloads with
 
 | Artifact | Role |
 |---|---|
-| [`RampPublic/portal-qwen3-1.7b`](https://huggingface.co/RampPublic/portal-qwen3-1.7b) | Jointly trained source |
+| [`RampPublic/portal-qwen3-1.7b`](https://huggingface.co/RampPublic/portal-qwen3-1.7b) | Jointly trained shared weights plus the 1.7B alignment |
 | [`RampPublic/portal-qwen3-4b`](https://huggingface.co/RampPublic/portal-qwen3-4b) | Jointly trained shared weights plus the 4B alignment |
 | [`RampPublic/portal-qwen3-8b`](https://huggingface.co/RampPublic/portal-qwen3-8b) | 1,000-example-per-task refit |
 | [`RampPublic/portal-gemma-3-4b`](https://huggingface.co/RampPublic/portal-gemma-3-4b) | 1,000-example-per-task cross-family refit |
@@ -137,65 +137,12 @@ pip install 'portallib[training]==0.1.0'
 python examples/train_example.py
 ```
 
-Every example keeps its complete recipe in Python rather than hiding it behind a command-line
-parser. `SOURCE_BASES` can contain one or more exact base recipes. Every resulting source artifact
-contains the same shared task latents and canonical core plus its own alignment.
-
 [`REPRODUCING.md`](https://github.com/ramp-public/portallib/blob/main/REPRODUCING.md) records pinned dataset and model revisions, the complete training
 configuration, checkpoint selection, and source/Qwen/Gemma recipes.
 
 [`COMPUTE.md`](https://github.com/ramp-public/portallib/blob/main/COMPUTE.md) shows how to run any example locally with Docker or remotely through
 Modal. The compute wrapper provisions the runtime and persistent storage; the training and evaluation
 behavior comes from the installed `portallib` release and selected recipe.
-
-### Prepare the canonical task data
-
-[`scripts/prepare_dataset.py`](https://github.com/ramp-public/portallib/blob/main/scripts/prepare_dataset.py) downloads pinned revisions of the 14
-upstream benchmark datasets and reproduces the exact prompt and choice normalization used by the
-training examples:
-
-```bash
-python scripts/prepare_dataset.py --output portal_tasks.json
-```
-
-To train from that local file, set `DATASET = "portal_tasks.json"` and `DATASET_REVISION = None` in
-the recipe block before running `python examples/train_example.py`.
-
-Pass `--tasks rte,boolq` to prepare a smaller subset. The preparation script only writes locally by
-default. Uploading the normalized dataset is a separate explicit operation:
-
-```bash
-python scripts/prepare_dataset.py --output portal_tasks.json \
-  --push-to-hub your-namespace/portal-tasks --private
-```
-
-Review the terms of every selected upstream dataset before redistributing normalized rows. The
-canonical suite contains datasets under multiple licenses; portallib's Apache-2.0 license applies to
-the software, not to upstream benchmark data. The upload command also installs the reviewed
-[`scripts/portal_tasks_dataset_card.md`](https://github.com/ramp-public/portallib/blob/main/scripts/portal_tasks_dataset_card.md) as the Hub dataset
-card so its source revisions, split construction, and mixed licensing remain attached to the data.
-
-For another model family, set its exact `BaseRecipe.layer_path`; paths are explicit rather than
-inferred from module-name patterns, so an incompatible model fails before training.
-
-The input is either a local JSON file or a Hugging Face dataset repository with `train` and
-`validation` splits. Every row uses this schema:
-
-```json
-{
-  "task": "rte",
-  "prompt": "Premise: ...\nHypothesis: ...\nEntailment?",
-  "choices": [" yes", " no"],
-  "gold_idx": 0
-}
-```
-
-A local JSON file wraps those rows in `train` and `validation` arrays. Dataset upload remains an
-explicit operation in `scripts/prepare_dataset.py`; the training example never uploads data.
-
-The checked-in `modules=("q", "v")` setting generates LoRA for query/value projections. Set it to
-`("q", "k", "v", "o", "gate", "up", "down")` to include the attention output and MLP
-projections. In both cases, the base model parameters remain frozen.
 
 ## Model compatibility
 
@@ -210,6 +157,13 @@ PorTAL validates every configured path and dimension before training. Automatic 
 adapters and models with non-uniform per-layer projection dimensions are not yet part of the
 supported v0.1 compatibility surface. Contributions that add exact, tested architecture mappings
 are welcome.
+
+For another model family, set its exact `BaseRecipe.layer_path`; paths are explicit rather than
+inferred from module-name patterns, so an incompatible model fails before training.
+
+The checked-in `modules=("q", "v")` setting generates LoRA for query/value projections. Set it to
+`("q", "k", "v", "o", "gate", "up", "down")` to include the attention output and MLP
+projections. In both cases, the base model parameters remain frozen.
 
 ## Artifact format
 
