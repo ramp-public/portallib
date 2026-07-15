@@ -1,0 +1,76 @@
+#!/usr/bin/env python3
+"""Evaluate a trained PorTAL artifact from Hugging Face or a local directory.
+
+Edit the recipe block, then run:
+
+    python examples/evaluate_example.py
+
+The artifact contains the task vectors, canonical hypernetwork, and matching base alignment. The
+example loads the frozen raw base separately and reports both its floor and PorTAL-adapted scores.
+"""
+
+from __future__ import annotations
+
+import json
+
+from portallib import PortalEvaluator, PortalModel
+from utils import BaseRecipe, load_base, load_dataset, runtime_device
+
+
+# ---------------------------------------------------------------------------
+# Recipe: trained PorTAL artifact + its raw base -> held-out evaluation.
+# ---------------------------------------------------------------------------
+
+PORTAL_ARTIFACT = "RampPublic/portal-qwen3-8b"
+PORTAL_ARTIFACT_REVISION: str | None = "v0.1.0"
+BASE = BaseRecipe(
+    "Qwen/Qwen3-8B",
+    "b968826d9c46dd6066d109eabc6255188de91218",
+)
+DATASET = "RampPublic/portallib-tasks"
+DATASET_REVISION = "d35f1e8a813cfae662166164fc25965a31b01ae0"
+MAX_EXAMPLES = 1000
+MAX_PROMPT = 768
+EVAL_BATCH_SIZE = 8
+
+# ---------------------------------------------------------------------------
+# End recipe.
+# ---------------------------------------------------------------------------
+
+
+def main() -> None:
+    dataset = load_dataset(DATASET, revision=DATASET_REVISION)
+    portal = PortalModel.from_pretrained(PORTAL_ARTIFACT, revision=PORTAL_ARTIFACT_REVISION)
+    if portal.config.base_model_name_or_path != BASE.model_id:
+        raise ValueError(
+            f"artifact expects {portal.config.base_model_name_or_path!r}, but BASE selects {BASE.model_id!r}"
+        )
+
+    device, dtype = runtime_device()
+    base = load_base(BASE, device=device, dtype=dtype)
+    evaluator = PortalEvaluator(max_prompt=MAX_PROMPT, batch_size=EVAL_BATCH_SIZE)
+    tasks = tuple(portal.config.tasks)
+    base_result = evaluator.evaluate(base, dataset, tasks=tasks, max_examples=MAX_EXAMPLES)
+    portal_result = evaluator.evaluate(
+        base,
+        dataset,
+        tasks=tasks,
+        portal=portal,
+        max_examples=MAX_EXAMPLES,
+    )
+    print(
+        json.dumps(
+            {
+                "artifact": PORTAL_ARTIFACT,
+                "base": base_result.to_dict(),
+                "portal": portal_result.to_dict(),
+                "macro_accuracy_lift": portal_result.macro_accuracy - base_result.macro_accuracy,
+            },
+            indent=2,
+        ),
+        flush=True,
+    )
+
+
+if __name__ == "__main__":
+    main()

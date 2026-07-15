@@ -1,0 +1,15 @@
+node_modules/
+out/
+__pycache__/
+*.pyc
+*.zip
+.DS_Store
+.venv/
+uv.lock
+.env
+.env.*
+!.env.example
+dist/
+*.pt
+*.pth
+*.safetensors

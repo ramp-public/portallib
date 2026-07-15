@@ -1,0 +1,9 @@
+.git
+.github
+.pytest_cache
+.ruff_cache
+.venv
+dist
+**/__pycache__
+**/*.pyc
+/portal-*
