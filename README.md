@@ -137,10 +137,6 @@ pip install 'portallib[training]==0.1.0'
 python examples/train_example.py
 ```
 
-Every example keeps its complete recipe in Python rather than hiding it behind a command-line
-parser. `SOURCE_BASES` can contain one or more exact base recipes. Every resulting source artifact
-contains the same shared task latents and canonical core plus its own alignment.
-
 [`REPRODUCING.md`](https://github.com/ramp-public/portallib/blob/main/REPRODUCING.md) records pinned dataset and model revisions, the complete training
 configuration, checkpoint selection, and source/Qwen/Gemma recipes.
 
