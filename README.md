@@ -2,9 +2,9 @@
 
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/ramp-public/portallib/codex/portallib-v0.1.0/docs/assets/portal_header_dark_v2.png">
-    <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/ramp-public/portallib/codex/portallib-v0.1.0/docs/assets/portal_header_light_v3.png">
-    <img src="https://raw.githubusercontent.com/ramp-public/portallib/codex/portallib-v0.1.0/docs/assets/portal_header_light_v3.png" width="560" alt="PorTAL wordmark passing through two portals">
+    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/ramp-public/portallib/main/docs/assets/portal_header_dark_v2.png">
+    <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/ramp-public/portallib/main/docs/assets/portal_header_light_v3.png">
+    <img src="https://raw.githubusercontent.com/ramp-public/portallib/main/docs/assets/portal_header_light_v3.png" width="560" alt="PorTAL wordmark passing through two portals">
   </picture>
 </p>
 
@@ -22,7 +22,7 @@ The included pinned recipes reproduce the PorTAL source-training, target-refitti
 method described by Ramp Labs. Reported results should be generated from the released artifacts and
 their recorded evaluation configuration rather than treated as fixed package guarantees.
 
-![PorTAL source training and target-base refitting phases](https://raw.githubusercontent.com/ramp-public/portallib/codex/portallib-v0.1.0/docs/assets/portal_phases.gif)
+![PorTAL source training and target-base refitting phases](https://raw.githubusercontent.com/ramp-public/portallib/main/docs/assets/portal_phases.gif)
 
 During source training, PorTAL jointly learns the task-latent table, one shared canonical core, and
 one alignment for each source base. To port the learned tasks, it freezes the latent table and core
