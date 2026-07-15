@@ -1,0 +1,71 @@
+name: Bug report
+description: Report reproducible incorrect behavior in portallib.
+title: "[Bug]: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a bug. Do not include credentials, private datasets, or security vulnerabilities.
+  - type: input
+    id: version
+    attributes:
+      label: portallib version
+      description: Run `python -c "import importlib.metadata; print(importlib.metadata.version('portallib'))"`.
+      placeholder: 0.1.0
+    validations:
+      required: true
+  - type: dropdown
+    id: installation
+    attributes:
+      label: Installation source
+      options:
+        - PyPI
+        - Git checkout
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: summary
+    attributes:
+      label: What happened?
+      description: Describe the observed behavior and its impact.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Minimal reproduction
+      description: Include the smallest code or commands that reproduce the problem.
+      render: python
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Include Python, PyTorch, Transformers, PEFT, OS, accelerator, and base-model versions when relevant.
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs or traceback
+      description: Remove tokens, paths containing private information, and other secrets.
+      render: shell
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Submission checks
+      options:
+        - label: I searched existing issues and pull requests.
+          required: true
+        - label: I removed credentials and private information.
+          required: true
+        - label: This is not a security vulnerability.
+          required: true
