@@ -80,7 +80,7 @@ The exported directory is an ordinary PEFT adapter and reloads with
 
 | Artifact | Role |
 |---|---|
-| [`RampPublic/portal-qwen3-1.7b`](https://huggingface.co/RampPublic/portal-qwen3-1.7b) | Jointly trained source |
+| [`RampPublic/portal-qwen3-1.7b`](https://huggingface.co/RampPublic/portal-qwen3-1.7b) | Jointly trained shared weights plus the 1.7B alignment |
 | [`RampPublic/portal-qwen3-4b`](https://huggingface.co/RampPublic/portal-qwen3-4b) | Jointly trained shared weights plus the 4B alignment |
 | [`RampPublic/portal-qwen3-8b`](https://huggingface.co/RampPublic/portal-qwen3-8b) | 1,000-example-per-task refit |
 | [`RampPublic/portal-gemma-3-4b`](https://huggingface.co/RampPublic/portal-gemma-3-4b) | 1,000-example-per-task cross-family refit |
