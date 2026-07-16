@@ -173,7 +173,7 @@ lift. Its default is the Qwen3-8B refit.
 python examples/evaluate_example.py
 ```
 
-Change the artifact and matching `BaseRecipe` together to evaluate the 1.7B, 4B, or Gemma artifact.
+Change the artifact and matching `BaseModelSpec` together to evaluate the 1.7B, 4B, or Gemma artifact.
 Release metrics should be taken from this clean Hub reload, not from an in-memory training object.
 
 [`COMPUTE.md`](COMPUTE.md) describes equivalent Docker and Modal launch patterns. Changing the

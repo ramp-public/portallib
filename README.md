@@ -182,7 +182,7 @@ adapters and models with non-uniform per-layer projection dimensions are not yet
 supported compatibility surface. Contributions that add exact, tested architecture mappings
 are welcome.
 
-For another model family, set its exact `BaseRecipe.layer_path`; paths are explicit rather than
+For another model family, set its exact `BaseModelSpec.layer_path`; paths are explicit rather than
 inferred from module-name patterns, so an incompatible model fails before training.
 
 The checked-in `modules=("q", "v")` setting generates LoRA for query/value projections. Set it to

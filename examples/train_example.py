@@ -18,7 +18,7 @@ from pathlib import Path
 import torch
 
 from portallib import PortalCoreTrainer, PortalTrainingConfig
-from portallib.runtime import BaseRecipe, load_base, load_dataset, model_slug, runtime_device
+from portallib.runtime import BaseModelSpec, load_base, load_dataset, model_slug, runtime_device
 
 
 # ---------------------------------------------------------------------------
@@ -31,8 +31,8 @@ OUTPUT_DIR = Path("artifacts/portal-qwen-sources")
 TASKS: tuple[str, ...] | None = None
 
 SOURCE_BASES = (
-    BaseRecipe("Qwen/Qwen3-1.7B", "70d244cc86ccca08cf5af4e1e306ecf908b1ad5e"),
-    BaseRecipe("Qwen/Qwen3-4B", "1cfa9a7208912126459214e8b04321603b3df60c"),
+    BaseModelSpec("Qwen/Qwen3-1.7B", "70d244cc86ccca08cf5af4e1e306ecf908b1ad5e"),
+    BaseModelSpec("Qwen/Qwen3-4B", "1cfa9a7208912126459214e8b04321603b3df60c"),
 )
 
 TRAINING_CONFIG = PortalTrainingConfig(

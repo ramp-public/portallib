@@ -25,10 +25,10 @@ CPU can be used for development and contract tests.
 
 The examples use one CUDA device and do not use multi-process or multi-node execution.
 
-Each `BaseRecipe` can override the automatic runtime defaults with Hugging Face loading controls:
+Each `BaseModelSpec` can override the automatic runtime defaults with Hugging Face loading controls:
 
 ```python
-BaseRecipe(
+BaseModelSpec(
     "Qwen/Qwen3-8B",
     "<exact-revision>",
     dtype="float32",

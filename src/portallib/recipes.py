@@ -21,7 +21,7 @@ from pydantic import (
 )
 
 from .config import SUPPORTED_MODULES
-from .runtime import BaseRecipe
+from .runtime import BaseModelSpec
 from .training import PortalTrainingConfig
 
 
@@ -131,8 +131,8 @@ class BaseModelRecipe(_StrictModel):
             raise ValueError(str(exc)) from exc
         return self
 
-    def to_runtime(self) -> BaseRecipe:
-        return BaseRecipe(**self.model_dump())
+    def to_runtime(self) -> BaseModelSpec:
+        return BaseModelSpec(**self.model_dump())
 
 
 class _TrainingRecipe(_StrictModel):

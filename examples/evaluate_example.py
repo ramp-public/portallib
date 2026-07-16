@@ -14,7 +14,7 @@ from __future__ import annotations
 import json
 
 from portallib import PortalEvaluator, PortalModel
-from portallib.runtime import BaseRecipe, load_base, load_dataset, runtime_device
+from portallib.runtime import BaseModelSpec, load_base, load_dataset, runtime_device
 
 
 # ---------------------------------------------------------------------------
@@ -23,7 +23,7 @@ from portallib.runtime import BaseRecipe, load_base, load_dataset, runtime_devic
 
 PORTAL_ARTIFACT = "RampPublic/portal-qwen3-8b"
 PORTAL_ARTIFACT_REVISION: str | None = "v0.1.0"
-BASE = BaseRecipe(
+BASE = BaseModelSpec(
     "Qwen/Qwen3-8B",
     "b968826d9c46dd6066d109eabc6255188de91218",
     # Optional host-specific controls:

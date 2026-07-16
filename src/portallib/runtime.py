@@ -13,7 +13,7 @@ from .evaluation import PortalBase
 
 
 @dataclass(frozen=True)
-class BaseRecipe:
+class BaseModelSpec:
     """One causal-language-model revision and its exact decoder paths."""
 
     model_id: str
@@ -67,7 +67,7 @@ def runtime_device(device: str = "auto", dtype: str = "auto") -> tuple[torch.dev
     return selected_device, selected_dtype
 
 
-def load_base(recipe: BaseRecipe, *, device: torch.device, dtype: torch.dtype) -> PortalBase:
+def load_base(recipe: BaseModelSpec, *, device: torch.device, dtype: torch.dtype) -> PortalBase:
     """Load one tokenizer/base pair and describe it as a :class:`PortalBase`."""
     try:
         from transformers import AutoModelForCausalLM, AutoTokenizer
