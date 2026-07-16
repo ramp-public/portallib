@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import copy
+import importlib.metadata
 import json
 import math
 from pathlib import Path
 from types import SimpleNamespace
 
+import portallib
 import pytest
 import torch
 from peft import PeftModel
@@ -37,6 +39,10 @@ from portallib.training import (
     _task_regressions,
     _update_ema,
 )
+
+
+def test_package_version_matches_distribution_metadata() -> None:
+    assert portallib.__version__ == importlib.metadata.version("portallib")
 
 
 class ToyAttention(nn.Module):
