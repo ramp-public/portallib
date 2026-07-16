@@ -175,8 +175,16 @@ def collate_gold_batch(
     sequences: list[list[int]] = []
     prompt_lengths: list[int] = []
     for row in rows:
-        prompt = tokenizer(row.prompt, add_special_tokens=True).input_ids[-max_prompt:]
-        answer = tokenizer(row.choices[row.gold_idx], add_special_tokens=False).input_ids
+        prompt, boundary_whitespace = _encode_prompt(
+            tokenizer,
+            row.prompt,
+            max_prompt=max_prompt,
+        )
+        answer, _continuation = _encode_continuation(
+            tokenizer,
+            boundary_whitespace,
+            row.choices[row.gold_idx],
+        )
         sequences.append(prompt + answer)
         prompt_lengths.append(len(prompt))
     max_length = max(map(len, sequences))
@@ -244,14 +252,20 @@ class PortalEvaluator:
             pending.clear()
 
         for row_index, row in enumerate(rows):
-            prompt = base.tokenizer(row.prompt, add_special_tokens=True).input_ids[-self.max_prompt :]
-            if not prompt:
-                raise ValueError("tokenized prompts must contain at least one token")
+            prompt, boundary_whitespace = _encode_prompt(
+                base.tokenizer,
+                row.prompt,
+                max_prompt=self.max_prompt,
+            )
             for choice_index, choice in enumerate(row.choices):
-                answer = base.tokenizer(choice, add_special_tokens=False).input_ids
+                answer, continuation = _encode_continuation(
+                    base.tokenizer,
+                    boundary_whitespace,
+                    choice,
+                )
                 if not answer:
                     continue
-                pending.append((row_index, choice_index, prompt + answer, len(answer), len(choice)))
+                pending.append((row_index, choice_index, prompt + answer, len(answer), len(continuation)))
                 if len(pending) == self.batch_size:
                     flush()
         flush()
@@ -268,8 +282,10 @@ class PortalEvaluator:
         max_examples: int | None = None,
     ) -> EvaluationResult:
         task_names = tasks or dataset.tasks
-        if portal is not None and tuple(portal.config.tasks) != tuple(task_names):
-            raise ValueError("portal task order must match the requested evaluation tasks")
+        if portal is not None:
+            missing_tasks = tuple(task for task in task_names if task not in portal.config.tasks)
+            if missing_tasks:
+                raise ValueError(f"requested tasks are absent from the PorTAL artifact: {missing_tasks}")
         was_training = base.model.training
         model_config = getattr(base.model, "config", None)
         previous_use_cache = getattr(model_config, "use_cache", None)
@@ -312,6 +328,37 @@ class PortalEvaluator:
 @contextmanager
 def _null_context() -> Iterator[None]:
     yield
+
+
+def _encode_prompt(
+    tokenizer: Any,
+    prompt: str,
+    *,
+    max_prompt: int,
+) -> tuple[list[int], str]:
+    """Encode a prompt once and return whitespace that belongs with its continuations."""
+    normalized_prompt = prompt.rstrip()
+    boundary_whitespace = prompt[len(normalized_prompt) :]
+    prompt_ids = tokenizer(normalized_prompt, add_special_tokens=True).input_ids[-max_prompt:]
+    if not prompt_ids:
+        start_token_id = getattr(tokenizer, "bos_token_id", None)
+        if start_token_id is None:
+            start_token_id = getattr(tokenizer, "eos_token_id", None)
+        if start_token_id is None:
+            raise ValueError("empty prompts require a tokenizer bos_token_id or eos_token_id")
+        prompt_ids = [int(start_token_id)]
+    return prompt_ids, boundary_whitespace
+
+
+def _encode_continuation(
+    tokenizer: Any,
+    boundary_whitespace: str,
+    continuation: str,
+) -> tuple[list[int], str]:
+    """Encode a continuation with trailing prompt whitespace moved to its natural boundary."""
+    normalized_continuation = boundary_whitespace + continuation
+    continuation_ids = tokenizer(normalized_continuation, add_special_tokens=False).input_ids
+    return continuation_ids, normalized_continuation
 
 
 def _pad_token_id(tokenizer: Any) -> int:

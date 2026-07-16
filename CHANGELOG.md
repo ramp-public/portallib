@@ -2,6 +2,18 @@
 
 All notable changes to `portallib` are documented here.
 
+## 0.1.1 - 2026-07-16
+
+- Preserve prompt/continuation token boundaries consistently during training and evaluation,
+  including WinoGrande blanks at the beginning or within a sentence.
+- Normalize prepared choices to one leading space with no trailing whitespace and pin the verified
+  dataset revision used by the checked-in recipes.
+- Allow `PortalEvaluator` to evaluate any requested task subset contained in an artifact.
+- Expose optional dtype, device-map, and attention-implementation controls in the example base
+  recipes without forcing a bulk device move after Hugging Face model loading.
+- Validate the four published `v0.1.0` model artifacts against the normalized dataset; their model
+  weights and artifact revisions remain unchanged.
+
 ## 0.1.0 - 2026-07-15
 
 Initial public release of `portallib` on PyPI.

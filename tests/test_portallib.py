@@ -168,6 +168,43 @@ class FixedChoiceTokenizer(ToyTokenizer):
         return SimpleNamespace(input_ids=([1] if add_special_tokens else []) + tokens)
 
 
+class BoundaryTokenizer:
+    pad_token_id = 0
+    eos_token_id = 1
+
+    def __call__(self, text: str, *, add_special_tokens: bool = True):
+        tokens = {
+            "because": [4],
+            "because ": [4, 7],
+            "Ian": [8],
+            "Dennis": [9],
+            " Ian": [10],
+            " Dennis": [11],
+        }[text]
+        return SimpleNamespace(input_ids=([self.eos_token_id] if add_special_tokens else []) + tokens)
+
+
+class EmptyPromptTokenizer:
+    pad_token_id = 0
+    bos_token_id = None
+    eos_token_id = 1
+
+    def __call__(self, text: str, *, add_special_tokens: bool = True):
+        return SimpleNamespace(input_ids=[] if text == "" else [2])
+
+
+class RecordingChoiceLM(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.anchor = nn.Parameter(torch.zeros(()))
+        self.input_batches: list[torch.Tensor] = []
+
+    def forward(self, input_ids=None, attention_mask=None):
+        self.input_batches.append(input_ids.detach().cpu())
+        logits = torch.zeros((*input_ids.shape, 12), device=input_ids.device) + self.anchor
+        return SimpleNamespace(logits=logits)
+
+
 def make_config(model: nn.Module | None = None, *, tasks: list[str] | None = None) -> PortalConfig:
     return PortalConfig.from_model(
         model or ToyBaseModel(),
@@ -422,6 +459,19 @@ def test_evaluator_epoch_zero_matches_unadapted_base() -> None:
     assert math.isfinite(adapted.macro_gold_nll)
 
 
+def test_evaluator_accepts_portal_task_subsets_and_rejects_unknown_tasks() -> None:
+    model = ToyCausalLM()
+    base = PortalBase("toy/base", model, ToyTokenizer())
+    dataset = make_dataset()
+    portal = PortalModel(make_config(model), torch.randn(2, 3), PortalDecoder(make_config(model)))
+
+    result = PortalEvaluator(max_prompt=32).evaluate(base, dataset, tasks=("beta",), portal=portal)
+
+    assert tuple(result.tasks) == ("beta",)
+    with pytest.raises(ValueError, match="absent.*gamma"):
+        PortalEvaluator(max_prompt=32).evaluate(base, dataset, tasks=("gamma",), portal=portal)
+
+
 def test_evaluator_uses_character_normalized_choice_score_and_token_nll() -> None:
     row = ChoiceExample("metric", "prompt", (" yyyyyyyyyy", " n n"), 0)
     dataset = ChoiceDataset([row], [row])
@@ -464,6 +514,42 @@ def test_gold_batch_collator_masks_prompts_and_is_public() -> None:
     assert input_ids.tolist() == [[1, 4, 6, 2]]
     assert attention_mask.tolist() == [[1, 1, 1, 1]]
     assert labels.tolist() == [[-100, -100, -100, 2]]
+
+
+def test_training_and_evaluation_move_trailing_prompt_whitespace_to_continuations() -> None:
+    row = ChoiceExample("boundary", "because ", ("Ian", "Dennis"), 0)
+    input_ids, attention_mask, labels = collate_gold_batch(
+        BoundaryTokenizer(),
+        [row],
+        max_prompt=32,
+        device=torch.device("cpu"),
+    )
+
+    assert input_ids.tolist() == [[1, 4, 10]]
+    assert attention_mask.tolist() == [[1, 1, 1]]
+    assert labels.tolist() == [[-100, -100, 10]]
+
+    model = RecordingChoiceLM()
+    dataset = ChoiceDataset([row], [row])
+    PortalEvaluator(batch_size=2).evaluate(
+        PortalBase("toy/boundary", model, BoundaryTokenizer()),
+        dataset,
+    )
+    assert model.input_batches[0].tolist() == [[1, 4, 10], [1, 4, 11]]
+
+
+def test_empty_prompts_use_the_tokenizer_end_token_as_context() -> None:
+    row = ChoiceExample("boundary", "", (" answer", " alternative"), 0)
+    input_ids, attention_mask, labels = collate_gold_batch(
+        EmptyPromptTokenizer(),
+        [row],
+        max_prompt=32,
+        device=torch.device("cpu"),
+    )
+
+    assert input_ids.tolist() == [[1, 2]]
+    assert attention_mask.tolist() == [[1, 1]]
+    assert labels.tolist() == [[-100, 2]]
 
 
 def test_ema_and_base_gradient_equalization_match_stage3_recipe() -> None:

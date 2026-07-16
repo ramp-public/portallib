@@ -16,23 +16,24 @@ This dataset is the normalized task suite used by the training examples in
 19,548 validation examples. Each row has the following fields:
 
 - `task`: stable task name
-- `prompt`: language-model context
-- `choices`: candidate continuations, including intentional leading whitespace
+- `prompt`: language-model context with no trailing whitespace; it is empty only when a source
+  sentence places its blank first
+- `choices`: candidate continuations with exactly one leading space and no trailing whitespace
 - `gold_idx`: zero-based index of the correct continuation
 
 The validation metric in portallib is continuation log-probability normalized by character length
 (`acc_norm`). Gold continuation token-mean NLL is reported separately.
 
-## Release recipe selection
+## Recipe selection
 
-The repository stores the complete normalized task pools. The `portallib` v0.1.0 release recipes
-select examples deterministically from this single dataset revision:
+The repository stores the complete normalized task pools. The checked-in PorTAL recipes select
+examples deterministically from this dataset:
 
 - Source training uses the leading 2,000 training examples for each task, or every available
   example when a task has fewer than 2,000. The subset is fixed across epochs
   (`source_resample_each_epoch=False`).
-- Qwen3-8B and Gemma 3 4B refitting use a seeded sample of up to 1,000 training examples per task
-  from the complete pool (`seed=0`).
+- Refitting uses a seeded sample of up to 1,000 training examples per task from the complete pool
+  (`seed=0`).
 - Evaluation uses the leading 1,000 validation examples per task, or every available example when
   a task has fewer than 1,000.
 
@@ -63,15 +64,15 @@ responsible for complying with the terms of each source dataset.
 
 The complete deterministic normalization is in
 [`scripts/prepare_dataset.py`](https://github.com/ramp-public/portallib/blob/main/scripts/prepare_dataset.py).
-Install the released training package, then run the preparation script from a portallib checkout:
+From a portallib checkout, install the training dependencies and run the preparation script:
 
 ```bash
-pip install 'portallib[training]==0.1.0'
+pip install -e '.[training]'
 python scripts/prepare_dataset.py --output portal_tasks.json
 ```
 
 The canonical JSON serialization has SHA-256
-`c5aec929f1800a3f1f4b3150aa1c9e464356fdb0cd11645c29df5b78efcdec00`.
+`97ae9193a02b96daec13f7e21f56fbe7ed5102fd900e6c2093d9bbfc009f74cd`.
 
 TruthfulQA exposes one labeled split, so the first 75% is used for training and the final 25% for
 validation. Every other task uses its upstream `train` and `validation`
