@@ -88,40 +88,38 @@ class PortalInjector:
         self._checkpoint_active: GeneratedLora | None = None
         self._factor_specs: dict[tuple[int, str], tuple[int, int, torch.device, torch.dtype]] = {}
         self._handles: list[torch.utils.hooks.RemovableHandle] = []
-        for layer_index in range(config.n_layers):
-            for short_name, module_path in config.module_paths.items():
-                exact_path = f"{config.layer_path}.{layer_index}.{module_path}"
-                try:
-                    module = base_model.get_submodule(exact_path)
-                except (AttributeError, KeyError) as exc:
-                    self.close()
-                    raise ValueError(f"base model has no exact projection path {exact_path!r}") from exc
-                if not isinstance(module, nn.Linear):
-                    self.close()
-                    raise TypeError(f"configured projection {exact_path!r} is not torch.nn.Linear")
-                key = (layer_index, short_name)
-                in_features = module.in_features
-                out_features = module.out_features
-                self._factor_specs[key] = (in_features, out_features, module.weight.device, module.weight.dtype)
+        for layer_index, short_name, exact_path in config.targets():
+            try:
+                module = base_model.get_submodule(exact_path)
+            except (AttributeError, KeyError) as exc:
+                self.close()
+                raise ValueError(f"base model has no exact projection path {exact_path!r}") from exc
+            if not isinstance(module, nn.Linear):
+                self.close()
+                raise TypeError(f"configured projection {exact_path!r} is not torch.nn.Linear")
+            key = (layer_index, short_name)
+            in_features = module.in_features
+            out_features = module.out_features
+            self._factor_specs[key] = (in_features, out_features, module.weight.device, module.weight.dtype)
 
-                def hook(
-                    _module: nn.Module,
-                    inputs: tuple[torch.Tensor, ...],
-                    output: torch.Tensor,
-                    *,
-                    factor_key: tuple[int, str] = key,
-                ) -> torch.Tensor:
-                    factors = self._active.get() or self._checkpoint_active
-                    if factors is None:
-                        return output
-                    if factor_key not in factors:
-                        raise ValueError(f"generated factors are missing configured target {factor_key}")
-                    a, b = factors[factor_key]
-                    x = inputs[0]
-                    delta = F.linear(F.linear(x, a), b)
-                    return output + delta.to(dtype=output.dtype) * config.scaling
+            def hook(
+                _module: nn.Module,
+                inputs: tuple[torch.Tensor, ...],
+                output: torch.Tensor,
+                *,
+                factor_key: tuple[int, str] = key,
+            ) -> torch.Tensor:
+                factors = self._active.get() or self._checkpoint_active
+                if factors is None:
+                    return output
+                if factor_key not in factors:
+                    raise ValueError(f"generated factors are missing configured target {factor_key}")
+                a, b = factors[factor_key]
+                x = inputs[0]
+                delta = F.linear(F.linear(x, a), b)
+                return output + delta.to(dtype=output.dtype) * config.scaling
 
-                self._handles.append(module.register_forward_hook(hook))
+            self._handles.append(module.register_forward_hook(hook))
 
     def _prepare_factors(self, factors: GeneratedLora) -> GeneratedLora:
         prepared: GeneratedLora = {}
@@ -271,6 +269,23 @@ class PortalEvaluator:
         flush()
         return scores, gold_nll, gold_tokens
 
+    def compare(
+        self,
+        base: PortalBase,
+        dataset: ChoiceDataset,
+        portal: PortalModel,
+        *,
+        tasks: tuple[str, ...] | None = None,
+        max_examples: int | None = None,
+    ) -> tuple[EvaluationResult, EvaluationResult]:
+        """Evaluate the raw base and its PorTAL artifact over the same rows."""
+        portal.validate_base_model(base.model_id)
+        task_names = tasks or tuple(portal.config.tasks)
+        return (
+            self.evaluate(base, dataset, tasks=task_names, max_examples=max_examples),
+            self.evaluate(base, dataset, tasks=task_names, portal=portal, max_examples=max_examples),
+        )
+
     @torch.no_grad()
     def evaluate(
         self,
@@ -283,6 +298,7 @@ class PortalEvaluator:
     ) -> EvaluationResult:
         task_names = tasks or dataset.tasks
         if portal is not None:
+            portal.validate_base_model(base.model_id)
             missing_tasks = tuple(task for task in task_names if task not in portal.config.tasks)
             if missing_tasks:
                 raise ValueError(f"requested tasks are absent from the PorTAL artifact: {missing_tasks}")

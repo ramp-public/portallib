@@ -73,6 +73,11 @@ class PortalModel(
     def tasks(self) -> tuple[str, ...]:
         return tuple(self.config.tasks)
 
+    def validate_base_model(self, model_id: str) -> None:
+        """Require the base identity encoded by this base-specific artifact."""
+        if self.config.base_model_name_or_path != model_id:
+            raise ValueError(f"artifact expects {self.config.base_model_name_or_path!r}, but received {model_id!r}")
+
     def generate(self, task: str) -> GeneratedLora:
         """Generate LoRA A/B matrices for one named task."""
         try:
@@ -129,11 +134,7 @@ class PortalModel(
         """Build the standard PEFT configuration represented by this artifact."""
         from peft import LoraConfig
 
-        target_paths = [
-            f"{self.config.layer_path}.{layer_index}.{module_path}"
-            for layer_index in range(self.config.n_layers)
-            for module_path in self.config.module_paths.values()
-        ]
+        target_paths = [exact_path for _layer, _name, exact_path in self.config.targets()]
         return LoraConfig(
             base_model_name_or_path=self.config.base_model_name_or_path,
             revision=self.config.base_model_revision,
@@ -150,15 +151,14 @@ class PortalModel(
         """Generate canonical PEFT adapter keys without loading the base model."""
         generated = self.generate(task)
         adapter_state: dict[str, torch.Tensor] = {}
-        for layer_index in range(self.config.n_layers):
-            for short_name, module_path in self.config.module_paths.items():
-                key = (layer_index, short_name)
-                if key not in generated:
-                    raise ValueError(f"decoder did not generate configured PorTAL target {key}")
-                a, b = generated[key]
-                module_key = f"base_model.model.{self.config.layer_path}.{layer_index}.{module_path}"
-                adapter_state[f"{module_key}.lora_A.weight"] = a.detach().cpu().contiguous()
-                adapter_state[f"{module_key}.lora_B.weight"] = b.detach().cpu().contiguous()
+        for layer_index, short_name, exact_path in self.config.targets():
+            key = (layer_index, short_name)
+            if key not in generated:
+                raise ValueError(f"decoder did not generate configured PorTAL target {key}")
+            a, b = generated[key]
+            module_key = f"base_model.model.{exact_path}"
+            adapter_state[f"{module_key}.lora_A.weight"] = a.detach().cpu().contiguous()
+            adapter_state[f"{module_key}.lora_B.weight"] = b.detach().cpu().contiguous()
         return adapter_state
 
     def export_peft(

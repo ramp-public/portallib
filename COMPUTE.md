@@ -1,13 +1,22 @@
 # Running PorTAL on GPU compute
 
 PorTAL training and evaluation are single-process PyTorch workloads. The library is installed from
-PyPI; the repository supplies the editable recipe files and compute launchers. Select
-`train_example.py`, `refit_example.py`, or `evaluate_example.py`, edit its recipe block, and run it.
-Every compute platform follows the same pattern:
+PyPI; the repository supplies strict TOML recipes, editable Python equivalents, and compute
+launchers. A compute platform can run the Python workflows directly:
 
 ```bash
 python examples/train_example.py
 ```
+
+or invoke the equivalent configuration-driven CLI recipe:
+
+```bash
+portallib train --config examples/configs/train.toml
+```
+
+Use `examples/refit_example.py` or `examples/evaluate_example.py` for the other Python phases, or
+the matching `refit` and `evaluate` TOML recipes. Both interfaces call the same package training,
+refitting, and evaluation implementation.
 
 The compute platform provisions the GPU, preserves the Hugging Face cache and `artifacts/`
 directory, and supplies any required Hugging Face token. The release source and both 1,000-example
@@ -22,10 +31,10 @@ CPU can be used for development and contract tests.
 
 The examples use one CUDA device and do not use multi-process or multi-node execution.
 
-Each `BaseRecipe` can override the automatic runtime defaults with Hugging Face loading controls:
+Each `BaseModelSpec` can override the automatic runtime defaults with Hugging Face loading controls:
 
 ```python
-BaseRecipe(
+BaseModelSpec(
     "Qwen/Qwen3-8B",
     "<exact-revision>",
     dtype="float32",
@@ -40,7 +49,7 @@ When `device_map` is set, the loader preserves Hugging Face's placement and does
 ## Local Docker
 
 The included [`Dockerfile`](Dockerfile) builds a CUDA training image containing the exact checked-out
-package code and edited recipe. This source-based image is useful for validating a release commit;
+package code and TOML recipes. This source-based image is useful for validating a release commit;
 ordinary library installation should use PyPI.
 The default base image can be overridden with `--build-arg PYTORCH_IMAGE=...` when the host requires
 a different PyTorch/CUDA combination.
@@ -55,14 +64,14 @@ docker run --rm --gpus all \
   portallib-training
 ```
 
-The image defaults to `train_example.py`. Override its command for another stage:
+The image defaults to the source-training TOML recipe. Override its command for another stage:
 
 ```bash
 docker run --rm --gpus all \
   -e HF_TOKEN \
   -v "$PWD/artifacts:/workspace/portallib/artifacts" \
   -v "$PWD/hf-cache:/cache/huggingface" \
-  portallib-training python examples/refit_example.py
+  portallib-training portallib refit --config examples/configs/refit.toml
 ```
 
 Choose a base image whose CUDA build supports the assigned GPU. This matters particularly for new
@@ -72,7 +81,7 @@ GPU architectures.
 
 [`examples/launchers/modal_launcher.py`](examples/launchers/modal_launcher.py) is one optional
 compute wrapper. It builds the repository's Docker image, mounts persistent storage at the recipe's
-`artifacts/` directory, and runs the file selected by its `EXAMPLE` constant.
+`artifacts/` directory, and runs the CLI invocation selected by its `COMMAND` constant.
 
 ```bash
 python -m pip install modal

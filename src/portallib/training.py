@@ -12,7 +12,8 @@ from typing import Any, Callable, Literal
 import torch
 from torch import nn
 
-from .config import PortalConfig
+from ._paths import model_slug
+from .config import _ARCHITECTURE_FIELDS, PortalConfig
 from .data import ChoiceDataset, ChoiceExample
 from .decoder import PortalAlignment, PortalCore, PortalDecoder
 from .evaluation import EvaluationResult, PortalBase, PortalEvaluator, PortalInjector, collate_gold_batch
@@ -56,20 +57,16 @@ class PortalTrainingConfig:
     @classmethod
     def from_portal_config(cls, config: PortalConfig, **training_overrides: Any) -> "PortalTrainingConfig":
         """Reuse an artifact's canonical architecture with caller-selected optimization settings."""
-        architecture = {
-            "modules": config.modules,
-            "rank": config.rank,
-            "alpha": config.alpha,
-            "d_z": config.d_z,
-            "d_layer": config.d_layer,
-            "hidden": config.hidden,
-            "d_core": config.d_core,
-        }
+        architecture = config.architecture_kwargs()
         conflicting = architecture.keys() & training_overrides.keys()
         if conflicting:
             names = ", ".join(sorted(conflicting))
             raise ValueError(f"artifact architecture cannot be overridden: {names}")
         return cls(**architecture, **training_overrides)
+
+    def architecture_kwargs(self) -> dict[str, Any]:
+        """Return the canonical architecture fields used to create a native artifact."""
+        return {name: getattr(self, name) for name in _ARCHITECTURE_FIELDS}
 
     def __post_init__(self) -> None:
         positive = (self.rank, self.alpha, self.d_z, self.d_layer, self.hidden, self.d_core)
@@ -101,6 +98,18 @@ class EpochMetrics:
     macro_accuracy: float
     macro_gold_nll: float
 
+    def to_dict(self) -> dict[str, Any]:
+        """Return the shared JSON representation used by callbacks and the CLI."""
+        return {
+            "epoch": self.epoch,
+            "acc_norm": self.macro_accuracy,
+            "gold_nll": self.macro_gold_nll,
+            "bases": {
+                name: {"acc_norm": result.macro_accuracy, "gold_nll": result.macro_gold_nll}
+                for name, result in self.evaluations.items()
+            },
+        }
+
 
 @dataclass(frozen=True)
 class CoreTrainingResult:
@@ -126,15 +135,9 @@ def _model_config(base: PortalBase, tasks: tuple[str, ...], recipe: PortalTraini
         tasks=list(tasks),
         base_model_name_or_path=base.model_id,
         base_model_revision=base.revision,
-        modules=recipe.modules,
         layer_path=base.layer_path,
         module_paths=base.module_paths,
-        rank=recipe.rank,
-        alpha=recipe.alpha,
-        d_z=recipe.d_z,
-        d_layer=recipe.d_layer,
-        hidden=recipe.hidden,
-        d_core=recipe.d_core,
+        **recipe.architecture_kwargs(),
     )
 
 
@@ -184,6 +187,22 @@ def _macro(evaluations: dict[str, EvaluationResult]) -> tuple[float, float]:
     )
 
 
+def _evaluate_portal(
+    base: PortalBase,
+    dataset: ChoiceDataset,
+    tasks: tuple[str, ...],
+    portal: PortalModel,
+    recipe: PortalTrainingConfig,
+) -> EvaluationResult:
+    return PortalEvaluator(max_prompt=recipe.max_prompt, batch_size=recipe.eval_batch_size).evaluate(
+        base,
+        dataset,
+        tasks=tasks,
+        portal=portal,
+        max_examples=recipe.eval_max_examples,
+    )
+
+
 def _better(accuracy: float, nll: float, best_accuracy: float, best_nll: float) -> bool:
     return accuracy > best_accuracy or (accuracy == best_accuracy and nll < best_nll)
 
@@ -205,6 +224,36 @@ def _gradient_norm(parameters: list[nn.Parameter]) -> float:
     return float(torch.stack(gradients).norm()) if gradients else 0.0
 
 
+def _batches(
+    pools: dict[int, list[ChoiceExample]],
+    batch_size: int,
+) -> dict[int, list[list[ChoiceExample]]]:
+    return {
+        task_index: [rows[offset : offset + batch_size] for offset in range(0, len(rows), batch_size)]
+        for task_index, rows in pools.items()
+    }
+
+
+def _finish_optimizer_step(
+    optimizer: torch.optim.Optimizer,
+    *,
+    checked_parameters: list[nn.Parameter],
+    clipped_parameters: list[nn.Parameter],
+    grad_clip: float,
+    scheduler: torch.optim.lr_scheduler.LambdaLR | None,
+    missing_gradient_message: str,
+) -> float:
+    gradient_norm = _gradient_norm(checked_parameters)
+    if not torch.isfinite(torch.tensor(gradient_norm)) or gradient_norm == 0:
+        raise RuntimeError(missing_gradient_message)
+    if grad_clip > 0:
+        torch.nn.utils.clip_grad_norm_(clipped_parameters, grad_clip)
+    optimizer.step()
+    if scheduler is not None:
+        scheduler.step()
+    return gradient_norm
+
+
 def _task_regressions(
     initial: EpochMetrics,
     selected: EpochMetrics,
@@ -218,10 +267,6 @@ def _task_regressions(
             if change < -threshold:
                 regressions.setdefault(base_name, {})[task] = change
     return regressions
-
-
-def _slug(model_id: str) -> str:
-    return model_id.rsplit("/", 1)[-1].lower().replace(".", "-")
 
 
 def _write_metrics(path: Path, metrics: EpochMetrics) -> None:
@@ -250,7 +295,7 @@ def _write_checkpoint(
     root = Path(checkpoint_dir) / f"epoch-{epoch}"
     if nest_by_base:
         for name, artifact in artifacts.items():
-            artifact.save_pretrained(root / _slug(name))
+            artifact.save_pretrained(root / model_slug(name))
     else:
         if len(artifacts) != 1:
             raise ValueError("a flat checkpoint must contain exactly one artifact")
@@ -387,14 +432,13 @@ class PortalCoreTrainer:
         return PortalModel(config, self.task_latents, decoder)
 
     def _evaluate(self, epoch: int) -> EpochMetrics:
-        evaluator = PortalEvaluator(max_prompt=self.recipe.max_prompt, batch_size=self.recipe.eval_batch_size)
         evaluations = {
-            base.model_id: evaluator.evaluate(
+            base.model_id: _evaluate_portal(
                 base,
                 self.dataset,
-                tasks=self.tasks,
-                portal=self._portal(base),
-                max_examples=self.recipe.eval_max_examples,
+                self.tasks,
+                self._portal(base),
+                self.recipe,
             )
             for base in self.bases
         }
@@ -472,13 +516,7 @@ class PortalCoreTrainer:
                         ).sample(pool, size)
                     else:
                         epoch_rows[task_index] = list(pool[:size])
-                batches = {
-                    task_index: [
-                        rows[offset : offset + self.recipe.batch_size]
-                        for offset in range(0, len(rows), self.recipe.batch_size)
-                    ]
-                    for task_index, rows in epoch_rows.items()
-                }
+                batches = _batches(epoch_rows, self.recipe.batch_size)
                 self.core.train()
                 for alignment in self.alignments.values():
                     alignment.train()
@@ -520,16 +558,16 @@ class PortalCoreTrainer:
                             self.task_latents.grad.zero_()
                     if base_z_grads:
                         self.task_latents.grad = _equalize_gradients(base_z_grads)
-                    decoder_grad_norm = _gradient_norm(decoder_parameters)
-                    if not torch.isfinite(torch.tensor(decoder_grad_norm)) or decoder_grad_norm == 0:
-                        raise RuntimeError("canonical core/alignment received no finite gradient")
+                    decoder_grad_norm = _finish_optimizer_step(
+                        optimizer,
+                        checked_parameters=decoder_parameters,
+                        clipped_parameters=[self.task_latents, *decoder_parameters],
+                        grad_clip=self.recipe.grad_clip,
+                        scheduler=scheduler,
+                        missing_gradient_message="canonical core/alignment received no finite gradient",
+                    )
                     if first_decoder_grad_norm is None:
                         first_decoder_grad_norm = decoder_grad_norm
-                    if self.recipe.grad_clip > 0:
-                        torch.nn.utils.clip_grad_norm_([self.task_latents, *decoder_parameters], self.recipe.grad_clip)
-                    optimizer.step()
-                    if scheduler is not None:
-                        scheduler.step()
                 metrics = self._evaluate(epoch)
                 snapshot = self._snapshot()
                 self._checkpoint(epoch, metrics, snapshot)
@@ -541,7 +579,7 @@ class PortalCoreTrainer:
         artifacts = self._artifacts(tracker.best_state)
         if self.recipe.checkpoint_dir is not None:
             for name, artifact in artifacts.items():
-                artifact.save_pretrained(Path(self.recipe.checkpoint_dir) / "best" / _slug(name))
+                artifact.save_pretrained(Path(self.recipe.checkpoint_dir) / "best" / model_slug(name))
         initial_metrics = tracker.history[0]
         return CoreTrainingResult(
             artifacts=artifacts,
@@ -587,15 +625,7 @@ class PortalAdapterRefitter:
         self.target = target
         self.dataset = dataset
         self.tasks = tuple(source.config.tasks)
-        self.recipe = config or PortalTrainingConfig(
-            modules=source.config.modules,
-            rank=source.config.rank,
-            alpha=source.config.alpha,
-            d_z=source.config.d_z,
-            d_layer=source.config.d_layer,
-            hidden=source.config.hidden,
-            d_core=source.config.d_core,
-        )
+        self.recipe = config or PortalTrainingConfig.from_portal_config(source.config)
         if self.recipe.modules != source.config.modules:
             raise ValueError("refit module targets must match the source artifact")
         target.freeze(gradient_checkpointing=self.recipe.gradient_checkpointing)
@@ -618,12 +648,12 @@ class PortalAdapterRefitter:
         )
 
     def _evaluate(self, epoch: int) -> EpochMetrics:
-        result = PortalEvaluator(max_prompt=self.recipe.max_prompt, batch_size=self.recipe.eval_batch_size).evaluate(
+        result = _evaluate_portal(
             self.target,
             self.dataset,
-            tasks=self.tasks,
-            portal=self._portal(),
-            max_examples=self.recipe.eval_max_examples,
+            self.tasks,
+            self._portal(),
+            self.recipe,
         )
         return EpochMetrics(epoch, {self.target.model_id: result}, result.macro_accuracy, result.macro_gold_nll)
 
@@ -654,15 +684,11 @@ class PortalAdapterRefitter:
                 if size == len(full)
                 else random.Random(self.recipe.seed * 100_003 + task_index * 131 + size).sample(full, size)
             )
-        batches = {
-            task_index: [
-                rows[offset : offset + self.recipe.batch_size] for offset in range(0, len(rows), self.recipe.batch_size)
-            ]
-            for task_index, rows in pools.items()
-        }
+        batches = _batches(pools, self.recipe.batch_size)
         rounds = max(len(task_batches) for task_batches in batches.values())
+        alignment_parameters = list(self.alignment.parameters())
         optimizer = torch.optim.AdamW(
-            self.alignment.parameters(),
+            alignment_parameters,
             lr=self.recipe.learning_rate,
             weight_decay=self.recipe.weight_decay,
         )
@@ -714,16 +740,16 @@ class PortalAdapterRefitter:
                             previous = ema[task_index]
                             ema[task_index] = _update_ema(previous, value, self.recipe.ema_decay)
                             (loss / max(ema[task_index], self.recipe.ema_floor)).backward()
-                    alignment_grad_norm = _gradient_norm(list(self.alignment.parameters()))
-                    if not torch.isfinite(torch.tensor(alignment_grad_norm)) or alignment_grad_norm == 0:
-                        raise RuntimeError("target alignment received no finite gradient")
+                    alignment_grad_norm = _finish_optimizer_step(
+                        optimizer,
+                        checked_parameters=alignment_parameters,
+                        clipped_parameters=alignment_parameters,
+                        grad_clip=self.recipe.grad_clip,
+                        scheduler=scheduler,
+                        missing_gradient_message="target alignment received no finite gradient",
+                    )
                     if first_alignment_grad_norm is None:
                         first_alignment_grad_norm = alignment_grad_norm
-                    if self.recipe.grad_clip > 0:
-                        torch.nn.utils.clip_grad_norm_(self.alignment.parameters(), self.recipe.grad_clip)
-                    optimizer.step()
-                    if scheduler is not None:
-                        scheduler.step()
                 metrics = self._evaluate(epoch)
                 alignment_state = _state_cpu(self.alignment)
                 self._checkpoint(epoch, metrics, alignment_state)

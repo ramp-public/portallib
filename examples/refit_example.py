@@ -22,7 +22,7 @@ from portallib import (
     PortalModel,
     PortalTrainingConfig,
 )
-from utils import BaseRecipe, load_base, load_dataset, runtime_device
+from portallib.runtime import BaseModelSpec, load_base, load_dataset, runtime_device
 
 
 # ---------------------------------------------------------------------------
@@ -32,13 +32,13 @@ from utils import BaseRecipe, load_base, load_dataset, runtime_device
 # Both source artifacts contain the same jointly trained task latents and canonical core.
 SOURCE_ARTIFACT = "RampPublic/portal-qwen3-4b"
 SOURCE_ARTIFACT_REVISION: str | None = "v0.1.0"
-TARGET_BASE = BaseRecipe(
+TARGET_BASE = BaseModelSpec(
     "Qwen/Qwen3-8B",
     "b968826d9c46dd6066d109eabc6255188de91218",
 )
 
 # Cross-family target alternative:
-# TARGET_BASE = BaseRecipe(
+# TARGET_BASE = BaseModelSpec(
 #     "google/gemma-3-4b-pt",
 #     "cc012e0a6d0787b4adcc0fa2c4da74402494554d",
 #     layer_path="model.language_model.layers",
@@ -77,17 +77,7 @@ def refit_config(source: PortalModel) -> PortalTrainingConfig:
 
 
 def print_epoch(epoch) -> None:
-    print(
-        json.dumps(
-            {
-                "phase": "refit",
-                "epoch": epoch.epoch,
-                "acc_norm": epoch.macro_accuracy,
-                "gold_nll": epoch.macro_gold_nll,
-            }
-        ),
-        flush=True,
-    )
+    print(json.dumps({"phase": "refit", **epoch.to_dict()}), flush=True)
 
 
 def main() -> None:

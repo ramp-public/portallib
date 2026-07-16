@@ -8,10 +8,10 @@ ENV HF_HOME=/cache/huggingface \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
 
-COPY pyproject.toml README.md LICENSE ./
+COPY pyproject.toml README.md CLI.md LICENSE ./
 COPY src ./src
 COPY examples ./examples
 
 RUN python -m pip install --no-cache-dir '.[training]'
 
-CMD ["python", "examples/train_example.py"]
+CMD ["portallib", "train", "--config", "examples/configs/train.toml"]

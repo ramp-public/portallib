@@ -59,7 +59,7 @@ def test_evaluation_example_uses_published_artifact_and_matching_base() -> None:
 
 def test_base_recipe_forwards_host_loading_controls_without_bulk_device_move(monkeypatch) -> None:
     from transformers import AutoModelForCausalLM, AutoTokenizer
-    from utils import BaseRecipe, load_base
+    from portallib.runtime import BaseModelSpec, load_base
 
     calls: dict[str, object] = {}
 
@@ -89,9 +89,10 @@ def test_base_recipe_forwards_host_loading_controls_without_bulk_device_move(mon
 
     monkeypatch.setattr(AutoTokenizer, "from_pretrained", load_tokenizer)
     monkeypatch.setattr(AutoModelForCausalLM, "from_pretrained", load_model)
-    recipe = BaseRecipe(
+    recipe = BaseModelSpec(
         "example/base",
         "exact-revision",
+        module_paths={"q": "self_attn.q_proj"},
         dtype="float32",
         device_map="cuda",
         attn_implementation="sdpa",
@@ -111,3 +112,4 @@ def test_base_recipe_forwards_host_loading_controls_without_bulk_device_move(mon
         },
     )
     assert model.to_calls == 0
+    assert base.module_paths == {"q": "self_attn.q_proj"}

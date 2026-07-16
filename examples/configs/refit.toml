@@ -1,0 +1,29 @@
+schema_version = 1
+kind = "refit"
+output_dir = "../../artifacts/portal-qwen3-8b-1000"
+result_path = "../../artifacts/portal-qwen3-8b-1000/result.json"
+source_artifact = "RampPublic/portal-qwen3-4b"
+source_artifact_revision = "v0.1.0"
+
+[dataset]
+repo_id = "RampPublic/portallib-tasks"
+revision = "ffc3c0e44f529bf64a5ae62ed5db090952db97ea"
+
+[runtime]
+device = "auto"
+dtype = "auto"
+
+[base]
+model_id = "Qwen/Qwen3-8B"
+revision = "b968826d9c46dd6066d109eabc6255188de91218"
+
+[training]
+refit_max_examples = 1000
+eval_max_examples = 1000
+eval_batch_size = 8
+epochs = 5
+batch_size = 4
+learning_rate = 1e-3
+lr_scheduler = "linear"
+warmup_ratio = 0.1
+seed = 0

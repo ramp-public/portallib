@@ -1,6 +1,6 @@
 [project]
 name = "portallib"
-version = "0.1.2"
+version = "0.2.0"
 description = "Generate portable task-specific LoRA adapters across language models"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -21,6 +21,7 @@ classifiers = [
 dependencies = [
   "huggingface-hub>=0.30,<2",
   "peft>=0.15,<1",
+  "pydantic>=2.11,<3",
   "safetensors>=0.4,<1",
   "torch>=2.2",
 ]
@@ -32,6 +33,9 @@ Documentation = "https://github.com/ramp-public/portallib#readme"
 Issues = "https://github.com/ramp-public/portallib/issues"
 Announcement = "https://x.com/RampLabs/status/2072381992285647280"
 Download = "https://pypi.org/project/portallib/"
+
+[project.scripts]
+portallib = "portallib.cli:main"
 
 [project.optional-dependencies]
 training = [
@@ -54,6 +58,7 @@ build-backend = "hatchling.build"
 include = [
   "/CITATION.cff",
   "/CHANGELOG.md",
+  "/CLI.md",
   "/COMPUTE.md",
   "/Dockerfile",
   "/LICENSE",

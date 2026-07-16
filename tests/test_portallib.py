@@ -400,6 +400,17 @@ def test_config_rejects_direct_and_requires_exact_paths() -> None:
         )
 
 
+def test_config_enumerates_each_exact_target_once() -> None:
+    config = make_config()
+
+    assert list(config.targets()) == [
+        (0, "q", "model.layers.0.self_attn.q_proj"),
+        (0, "v", "model.layers.0.self_attn.v_proj"),
+        (1, "q", "model.layers.1.self_attn.q_proj"),
+        (1, "v", "model.layers.1.self_attn.v_proj"),
+    ]
+
+
 def test_injector_is_differentiable_and_checkpoint_safe() -> None:
     base = ToyCausalLM()
     config = make_config(base, tasks=["alpha"])
@@ -476,6 +487,14 @@ def test_evaluator_accepts_portal_task_subsets_and_rejects_unknown_tasks() -> No
     assert tuple(result.tasks) == ("beta",)
     with pytest.raises(ValueError, match="absent.*gamma"):
         PortalEvaluator(max_prompt=32).evaluate(base, dataset, tasks=("gamma",), portal=portal)
+
+
+def test_evaluator_rejects_an_artifact_for_a_different_base() -> None:
+    dataset = make_dataset()
+    base = PortalBase("other/base", FixedChoiceLM(), FixedChoiceTokenizer())
+
+    with pytest.raises(ValueError, match="artifact expects 'toy/base'.*'other/base'"):
+        PortalEvaluator(max_prompt=32).evaluate(base, dataset, portal=make_portal())
 
 
 def test_evaluator_uses_character_normalized_choice_score_and_token_nll() -> None:

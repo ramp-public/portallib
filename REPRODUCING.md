@@ -14,11 +14,27 @@ model IDs, revisions, data budgets, and optimization settings are visible and ed
 ```bash
 git clone https://github.com/ramp-public/portallib
 cd portallib
-python -m pip install 'portallib[training]==0.1.2'
+python -m pip install 'portallib[training]==0.2.0'
 ```
 
 Install the CUDA-compatible PyTorch build required by your GPU platform before the command above
 when the default PyPI wheel is not appropriate.
+
+The three phases can be run as editable Python workflows or as equivalent strict TOML recipes:
+
+| Phase | Python | CLI |
+|---|---|---|
+| Source training | `python examples/train_example.py` | `portallib train --config examples/configs/train.toml` |
+| Target refitting | `python examples/refit_example.py` | `portallib refit --config examples/configs/refit.toml` |
+| Evaluation | `python examples/evaluate_example.py` | `portallib evaluate --config examples/configs/evaluate.toml` |
+
+The Python examples configure and call the public package APIs directly. The TOML recipes under
+`examples/configs/` provide the same workflows through the installed CLI and can be validated
+without loading models:
+
+```bash
+portallib validate --config examples/configs/train.toml
+```
 
 ## Pinned inputs
 
@@ -165,7 +181,7 @@ lift. Its default is the Qwen3-8B refit.
 python examples/evaluate_example.py
 ```
 
-Change the artifact and matching `BaseRecipe` together to evaluate the 1.7B, 4B, or Gemma artifact.
+Change the artifact and matching `BaseModelSpec` together to evaluate the 1.7B, 4B, or Gemma artifact.
 Release metrics should be taken from this clean Hub reload, not from an in-memory training object.
 
 [`COMPUTE.md`](COMPUTE.md) describes equivalent Docker and Modal launch patterns. Changing the

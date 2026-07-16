@@ -88,7 +88,7 @@ The exported directory is an ordinary PEFT adapter and reloads with
 The recipes load the `v0.1.0` artifact revisions. Each repository contains one base-specific native
 PorTAL artifact; task-specific standard PEFT adapters can be generated from it as needed.
 
-## Examples
+## Python workflows
 
 [`examples/train_example.py`](https://github.com/ramp-public/portallib/blob/main/examples/train_example.py) is thin orchestration around the public
 canonical trainer APIs. It freezes each base model, jointly learns shared task latents and a canonical
@@ -133,9 +133,46 @@ run them, then install the released training package:
 ```bash
 git clone https://github.com/ramp-public/portallib
 cd portallib
-pip install 'portallib[training]==0.1.2'
+pip install 'portallib[training]==0.2.0'
 python examples/train_example.py
 ```
+
+The trainer, refitter, and evaluator are regular Python APIs. The examples define their recipes as
+editable Python objects and invoke `PortalCoreTrainer`, `PortalAdapterRefitter`, and
+`PortalEvaluator` directly.
+
+## Configuration-driven CLI
+
+The CLI runs the same library workflows from strict TOML recipes, which is useful for containers,
+scheduled jobs, and reproducible subprocess execution:
+
+| Workflow | Python | CLI |
+|---|---|---|
+| Source training | `python examples/train_example.py` | `portallib train --config examples/configs/train.toml` |
+| Target refitting | `python examples/refit_example.py` | `portallib refit --config examples/configs/refit.toml` |
+| Evaluation | `python examples/evaluate_example.py` | `portallib evaluate --config examples/configs/evaluate.toml` |
+
+Install the training dependencies and optionally validate a recipe without loading models:
+
+```bash
+pip install 'portallib[training]==0.2.0'
+portallib validate --config examples/configs/train.toml
+portallib train --config examples/configs/train.toml
+```
+
+Recipes can also be piped without creating a temporary file:
+
+```bash
+generate-recipe | portallib evaluate --config -
+```
+
+Relative paths in piped recipes resolve from the current working directory.
+
+The CLI rejects unknown keys and command/recipe mismatches. It emits JSONL progress and final
+results, uses exit code `2` for recipe errors and `1` for runtime failures, and reads Hugging Face
+authentication from `HF_TOKEN` or the host's cached login. Credentials do not belong in recipe
+files. See [`CLI.md`](https://github.com/ramp-public/portallib/blob/main/CLI.md) for the schema and
+automation contract.
 
 [`REPRODUCING.md`](https://github.com/ramp-public/portallib/blob/main/REPRODUCING.md) records pinned dataset and model revisions, the complete training
 configuration, checkpoint selection, and source/Qwen/Gemma recipes.
@@ -155,10 +192,10 @@ Other causal language-model families are expected to work when they expose unifo
 projections across decoder layers. Pass their exact layer and projection paths through `PortalBase`;
 PorTAL validates every configured path and dimension before training. Automatic architecture
 adapters and models with non-uniform per-layer projection dimensions are not yet part of the
-supported v0.1 compatibility surface. Contributions that add exact, tested architecture mappings
+supported compatibility surface. Contributions that add exact, tested architecture mappings
 are welcome.
 
-For another model family, set its exact `BaseRecipe.layer_path`; paths are explicit rather than
+For another model family, set its exact `BaseModelSpec.layer_path`; paths are explicit rather than
 inferred from module-name patterns, so an incompatible model fails before training.
 
 The checked-in `modules=("q", "v")` setting generates LoRA for query/value projections. Set it to
@@ -193,7 +230,7 @@ dimensions, unknown schema versions, and inconsistent target declarations fail e
 - `PortalAdapterRefitter` freezes a source artifact's latents/core and trains only a target alignment.
 - `PortalTrainingConfig.from_portal_config` preserves an artifact's architecture while selecting a
   new optimization recipe for refitting.
-- `PortalEvaluator` batches candidate continuations while reporting character-normalized
+- `PortalEvaluator` evaluates or compares raw and adapted bases while reporting character-normalized
   multiple-choice accuracy and token-mean gold NLL.
 - `EvaluationResult.to_dict` returns the canonical JSON-ready evaluation representation.
 - `PortalDecoder` combines a canonical core and one base-specific alignment to generate LoRA factors.
