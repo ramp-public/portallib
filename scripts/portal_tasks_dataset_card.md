@@ -24,16 +24,16 @@ This dataset is the normalized task suite used by the training examples in
 The validation metric in portallib is continuation log-probability normalized by character length
 (`acc_norm`). Gold continuation token-mean NLL is reported separately.
 
-## Release recipe selection
+## Recipe selection
 
-The repository stores the complete normalized task pools. The `portallib` v0.1.0 release recipes
-select examples deterministically from this single dataset revision:
+The repository stores the complete normalized task pools. The checked-in PorTAL recipes select
+examples deterministically from this dataset:
 
 - Source training uses the leading 2,000 training examples for each task, or every available
   example when a task has fewer than 2,000. The subset is fixed across epochs
   (`source_resample_each_epoch=False`).
-- Qwen3-8B and Gemma 3 4B refitting use a seeded sample of up to 1,000 training examples per task
-  from the complete pool (`seed=0`).
+- Refitting uses a seeded sample of up to 1,000 training examples per task from the complete pool
+  (`seed=0`).
 - Evaluation uses the leading 1,000 validation examples per task, or every available example when
   a task has fewer than 1,000.
 
@@ -64,10 +64,10 @@ responsible for complying with the terms of each source dataset.
 
 The complete deterministic normalization is in
 [`scripts/prepare_dataset.py`](https://github.com/ramp-public/portallib/blob/main/scripts/prepare_dataset.py).
-Install the released training package, then run the preparation script from a portallib checkout:
+From a portallib checkout, install the training dependencies and run the preparation script:
 
 ```bash
-pip install 'portallib[training]==0.1.0'
+pip install -e '.[training]'
 python scripts/prepare_dataset.py --output portal_tasks.json
 ```
 
