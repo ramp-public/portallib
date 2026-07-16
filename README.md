@@ -133,7 +133,7 @@ run them, then install the released training package:
 ```bash
 git clone https://github.com/ramp-public/portallib
 cd portallib
-pip install 'portallib[training]==0.1.1'
+pip install 'portallib[training]==0.1.2'
 python examples/train_example.py
 ```
 

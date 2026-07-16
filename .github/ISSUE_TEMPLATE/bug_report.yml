@@ -11,7 +11,7 @@ body:
     attributes:
       label: portallib version
       description: Run `python -c "import importlib.metadata; print(importlib.metadata.version('portallib'))"`.
-      placeholder: 0.1.1
+      placeholder: 0.1.2
     validations:
       required: true
   - type: dropdown
