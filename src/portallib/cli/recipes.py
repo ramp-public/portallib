@@ -10,6 +10,7 @@ import torch
 from pydantic import (
     AfterValidator,
     BaseModel,
+    BeforeValidator,
     ConfigDict,
     Field,
     StringConstraints,
@@ -20,9 +21,9 @@ from pydantic import (
     model_validator,
 )
 
-from .config import SUPPORTED_MODULES
-from .runtime import BaseModelSpec
-from .training import PortalTrainingConfig
+from ..config import SUPPORTED_MODULES
+from ..runtime import BaseModelSpec
+from ..training import PortalTrainingConfig
 
 
 class RecipeError(ValueError):
@@ -33,12 +34,6 @@ def _non_blank(value: str) -> str:
     if not value.strip():
         raise ValueError("must not be blank")
     return value
-
-
-NonEmptyStr = Annotated[str, StringConstraints(min_length=1), AfterValidator(_non_blank)]
-PositiveInt = Annotated[int, Field(gt=0)]
-Limit = PositiveInt | None
-DTypeName = Literal["bfloat16", "float16", "float32"]
 
 
 def _parent(info: ValidationInfo) -> Path:
@@ -62,19 +57,26 @@ def _all_to_none(value: Any) -> Any:
     return None if value == "all" else value
 
 
+def _as_tuple(value: Any) -> Any:
+    return tuple(value) if isinstance(value, list) else value
+
+
+NonEmptyStr = Annotated[str, StringConstraints(min_length=1), AfterValidator(_non_blank)]
+PositiveInt = Annotated[int, Field(gt=0)]
+Limit = Annotated[PositiveInt | None, BeforeValidator(_all_to_none)]
+ResolvedPath = Annotated[Path, BeforeValidator(_resolve_path)]
+StringTuple = Annotated[tuple[NonEmptyStr, ...], BeforeValidator(_as_tuple)]
+DTypeName = Literal["bfloat16", "float16", "float32"]
+
+
 class _StrictModel(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
 
 
 class DatasetRecipe(_StrictModel):
     repo_id: NonEmptyStr | None = None
-    path: Path | None = None
+    path: ResolvedPath | None = None
     revision: NonEmptyStr | None = None
-
-    @field_validator("path", mode="before")
-    @classmethod
-    def resolve_path(cls, value: Any, info: ValidationInfo) -> Path | None:
-        return None if value is None else _resolve_path(value, info)
 
     @model_validator(mode="after")
     def validate_source(self) -> "DatasetRecipe":
@@ -91,7 +93,7 @@ class DatasetRecipe(_StrictModel):
 
 class RuntimeRecipe(_StrictModel):
     device: NonEmptyStr = "auto"
-    dtype: Literal["auto", "bfloat16", "float16", "float32"] = "auto"
+    dtype: DTypeName | Literal["auto"] = "auto"
 
     @field_validator("device")
     @classmethod
@@ -154,11 +156,6 @@ class _TrainingRecipe(_StrictModel):
     early_stopping_patience: PositiveInt | None = None
     task_regression_threshold: float | None = None
 
-    @field_validator("eval_max_examples", mode="before")
-    @classmethod
-    def normalize_limits(cls, value: Any) -> Any:
-        return _all_to_none(value)
-
     @model_validator(mode="after")
     def validate_training_config(self) -> "_TrainingRecipe":
         try:
@@ -172,7 +169,7 @@ class _TrainingRecipe(_StrictModel):
 
 
 class TrainSettings(_TrainingRecipe):
-    modules: tuple[NonEmptyStr, ...] | None = None
+    modules: StringTuple | None = None
     rank: PositiveInt | None = None
     alpha: PositiveInt | None = None
     d_z: PositiveInt | None = None
@@ -184,18 +181,11 @@ class TrainSettings(_TrainingRecipe):
     source_steps_per_epoch: PositiveInt | None = None
     latent_learning_rate: float | None = None
 
-    @field_validator("source_max_examples", mode="before")
+    @field_validator("modules")
     @classmethod
-    def normalize_source_limit(cls, value: Any) -> Any:
-        return _all_to_none(value)
-
-    @field_validator("modules", mode="before")
-    @classmethod
-    def validate_modules(cls, value: Any) -> tuple[str, ...] | None:
+    def validate_modules(cls, value: tuple[str, ...] | None) -> tuple[str, ...] | None:
         if value is None:
             return None
-        if isinstance(value, list):
-            value = tuple(value)
         if not value:
             raise ValueError("must not be empty")
         if len(value) != len(set(value)):
@@ -215,40 +205,29 @@ class CommonRecipe(_StrictModel):
     kind: Literal["train", "refit", "evaluate"]
     dataset: DatasetRecipe
     runtime: RuntimeRecipe = Field(default_factory=RuntimeRecipe)
-    tasks: tuple[NonEmptyStr, ...] | None = None
-    result_path: Path | None = None
+    tasks: StringTuple | None = None
+    result_path: ResolvedPath | None = None
 
-    @field_validator("result_path", mode="before")
+    @field_validator("tasks")
     @classmethod
-    def resolve_result_path(cls, value: Any, info: ValidationInfo) -> Path | None:
-        return None if value is None else _resolve_path(value, info)
-
-    @field_validator("tasks", mode="before")
-    @classmethod
-    def validate_tasks(cls, value: Any) -> tuple[str, ...] | None:
-        if isinstance(value, list):
-            value = tuple(value)
+    def validate_tasks(cls, value: tuple[str, ...] | None) -> tuple[str, ...] | None:
         if value is not None and (not value or len(value) != len(set(value))):
             raise ValueError("must be non-empty and contain no duplicates")
         return value
 
 
-class TrainRecipe(CommonRecipe):
+class _OutputRecipe(CommonRecipe):
+    output_dir: ResolvedPath
+
+
+class TrainRecipe(_OutputRecipe):
     kind: Literal["train"]
-    output_dir: Path
-    bases: tuple[BaseModelRecipe, ...]
+    bases: Annotated[tuple[BaseModelRecipe, ...], BeforeValidator(_as_tuple)]
     training: TrainSettings = Field(default_factory=TrainSettings)
 
-    @field_validator("output_dir", mode="before")
+    @field_validator("bases")
     @classmethod
-    def resolve_output_dir(cls, value: Any, info: ValidationInfo) -> Path:
-        return _resolve_path(value, info)
-
-    @field_validator("bases", mode="before")
-    @classmethod
-    def validate_bases(cls, value: Any) -> tuple[Any, ...]:
-        if isinstance(value, list):
-            value = tuple(value)
+    def validate_bases(cls, value: tuple[BaseModelRecipe, ...]) -> tuple[BaseModelRecipe, ...]:
         if not value:
             raise ValueError("must contain at least one base")
         return value
@@ -261,19 +240,13 @@ class TrainRecipe(CommonRecipe):
         return self
 
 
-class RefitRecipe(CommonRecipe):
+class RefitRecipe(_OutputRecipe):
     kind: Literal["refit"]
     tasks: None = None
-    output_dir: Path
     source_artifact: NonEmptyStr
     source_artifact_revision: NonEmptyStr | None = None
     base: BaseModelRecipe
     training: RefitSettings = Field(default_factory=RefitSettings)
-
-    @field_validator("output_dir", mode="before")
-    @classmethod
-    def resolve_output_dir(cls, value: Any, info: ValidationInfo) -> Path:
-        return _resolve_path(value, info)
 
     @field_validator("source_artifact")
     @classmethod
@@ -294,11 +267,6 @@ class EvaluateRecipe(CommonRecipe):
     @classmethod
     def resolve_artifact(cls, value: str, info: ValidationInfo) -> str:
         return _resolve_location(value, info)
-
-    @field_validator("max_examples", mode="before")
-    @classmethod
-    def normalize_max_examples(cls, value: Any) -> Any:
-        return _all_to_none(value)
 
 
 CliRecipe = Annotated[TrainRecipe | RefitRecipe | EvaluateRecipe, Field(discriminator="kind")]

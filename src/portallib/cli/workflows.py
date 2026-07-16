@@ -8,12 +8,12 @@ from typing import Any
 
 import torch
 
-from .data import ChoiceDataset
-from .evaluation import PortalEvaluator
-from .model import PortalModel
-from .recipes import CommonRecipe, DatasetRecipe, EvaluateRecipe, RefitRecipe, TrainRecipe
-from .runtime import load_base, load_dataset, model_slug, runtime_device
-from .training import EpochMetrics, PortalAdapterRefitter, PortalCoreTrainer, PortalTrainingConfig
+from ..data import ChoiceDataset
+from ..evaluation import PortalEvaluator
+from ..model import PortalModel
+from .recipes import CommonRecipe, EvaluateRecipe, RefitRecipe, TrainRecipe
+from ..runtime import load_base, load_dataset, model_slug, runtime_device
+from ..training import EpochMetrics, PortalAdapterRefitter, PortalCoreTrainer, PortalTrainingConfig
 
 
 def _emit(value: dict[str, Any], *, stream: Any | None = None) -> None:
@@ -41,14 +41,14 @@ def _epoch_event(phase: str, epoch: EpochMetrics) -> dict[str, Any]:
     }
 
 
-def _load_recipe_dataset(recipe: DatasetRecipe) -> ChoiceDataset:
-    return load_dataset(recipe.source, revision=recipe.revision)
+def _load_dataset(recipe: CommonRecipe) -> ChoiceDataset:
+    return load_dataset(recipe.dataset.source, revision=recipe.dataset.revision)
 
 
 def _run_train(recipe: TrainRecipe) -> None:
     training = recipe.training.overrides()
     torch.manual_seed(training.get("seed", PortalTrainingConfig.seed))
-    dataset = _load_recipe_dataset(recipe.dataset)
+    dataset = _load_dataset(recipe)
     tasks = recipe.tasks or dataset.tasks
     device, dtype = runtime_device(recipe.runtime.device, recipe.runtime.dtype)
     config = PortalTrainingConfig(**training, checkpoint_dir=recipe.output_dir / "checkpoints")
@@ -78,7 +78,7 @@ def _run_refit(recipe: RefitRecipe) -> None:
     training = recipe.training.overrides()
     seed = training.get("seed", PortalTrainingConfig.seed)
     torch.manual_seed(seed)
-    dataset = _load_recipe_dataset(recipe.dataset)
+    dataset = _load_dataset(recipe)
     source = PortalModel.from_pretrained(recipe.source_artifact, revision=recipe.source_artifact_revision)
     device, dtype = runtime_device(recipe.runtime.device, recipe.runtime.dtype)
     target = load_base(recipe.base.to_runtime(), device=device, dtype=dtype)
@@ -106,7 +106,7 @@ def _run_refit(recipe: RefitRecipe) -> None:
 
 
 def _run_evaluate(recipe: EvaluateRecipe) -> None:
-    dataset = _load_recipe_dataset(recipe.dataset)
+    dataset = _load_dataset(recipe)
     portal = PortalModel.from_pretrained(recipe.artifact, revision=recipe.artifact_revision)
     if portal.config.base_model_name_or_path != recipe.base.model_id:
         raise ValueError(

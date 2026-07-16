@@ -6,15 +6,11 @@ import argparse
 import sys
 from pathlib import Path
 
-from . import __version__
+from .. import __version__
 from .recipes import (
-    CliRecipe,
-    CommonRecipe,
-    DatasetRecipe,
     EvaluateRecipe,
     RecipeError,
     RefitRecipe,
-    RuntimeRecipe,
     TrainRecipe,
     load_recipe,
 )
@@ -71,7 +67,3 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 1
     return 0
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())
