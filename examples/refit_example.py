@@ -22,7 +22,7 @@ from portallib import (
     PortalModel,
     PortalTrainingConfig,
 )
-from utils import BaseRecipe, load_base, load_dataset, runtime_device
+from portallib.runtime import BaseRecipe, load_base, load_dataset, runtime_device
 
 
 # ---------------------------------------------------------------------------

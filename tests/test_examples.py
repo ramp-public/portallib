@@ -59,7 +59,7 @@ def test_evaluation_example_uses_published_artifact_and_matching_base() -> None:
 
 def test_base_recipe_forwards_host_loading_controls_without_bulk_device_move(monkeypatch) -> None:
     from transformers import AutoModelForCausalLM, AutoTokenizer
-    from utils import BaseRecipe, load_base
+    from portallib.runtime import BaseRecipe, load_base
 
     calls: dict[str, object] = {}
 

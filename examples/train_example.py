@@ -18,7 +18,7 @@ from pathlib import Path
 import torch
 
 from portallib import PortalCoreTrainer, PortalTrainingConfig
-from utils import BaseRecipe, load_base, load_dataset, model_slug, runtime_device
+from portallib.runtime import BaseRecipe, load_base, load_dataset, model_slug, runtime_device
 
 
 # ---------------------------------------------------------------------------

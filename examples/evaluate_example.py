@@ -14,7 +14,7 @@ from __future__ import annotations
 import json
 
 from portallib import PortalEvaluator, PortalModel
-from utils import BaseRecipe, load_base, load_dataset, runtime_device
+from portallib.runtime import BaseRecipe, load_base, load_dataset, runtime_device
 
 
 # ---------------------------------------------------------------------------
