@@ -2,6 +2,11 @@
 
 All notable changes to `portallib` are documented here.
 
+## 0.1.2 - 2026-07-16
+
+- Derive `portallib.__version__` from installed distribution metadata so it always matches the
+  package version.
+
 ## 0.1.1 - 2026-07-16
 
 - Preserve prompt/continuation token boundaries consistently during training and evaluation,
