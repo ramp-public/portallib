@@ -62,21 +62,7 @@ TRAINING_CONFIG = PortalTrainingConfig(
 
 
 def print_epoch(epoch) -> None:
-    print(
-        json.dumps(
-            {
-                "phase": "source",
-                "epoch": epoch.epoch,
-                "acc_norm": epoch.macro_accuracy,
-                "gold_nll": epoch.macro_gold_nll,
-                "bases": {
-                    name: {"acc_norm": result.macro_accuracy, "gold_nll": result.macro_gold_nll}
-                    for name, result in epoch.evaluations.items()
-                },
-            }
-        ),
-        flush=True,
-    )
+    print(json.dumps({"phase": "source", **epoch.to_dict()}), flush=True)
 
 
 def main() -> None:

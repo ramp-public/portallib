@@ -28,29 +28,29 @@ def _write_result(recipe: CommonRecipe, value: dict[str, Any]) -> None:
 
 
 def _epoch_event(phase: str, epoch: EpochMetrics) -> dict[str, Any]:
-    return {
-        "event": "epoch",
-        "phase": phase,
-        "epoch": epoch.epoch,
-        "acc_norm": epoch.macro_accuracy,
-        "gold_nll": epoch.macro_gold_nll,
-        "bases": {
-            name: {"acc_norm": result.macro_accuracy, "gold_nll": result.macro_gold_nll}
-            for name, result in epoch.evaluations.items()
-        },
-    }
+    return {"event": "epoch", "phase": phase, **epoch.to_dict()}
 
 
 def _load_dataset(recipe: CommonRecipe) -> ChoiceDataset:
     return load_dataset(recipe.dataset.source, revision=recipe.dataset.revision)
 
 
-def _run_train(recipe: TrainRecipe) -> None:
+def _load_runtime(recipe: CommonRecipe) -> tuple[ChoiceDataset, torch.device, torch.dtype]:
+    dataset = _load_dataset(recipe)
+    device, dtype = runtime_device(recipe.runtime.device, recipe.runtime.dtype)
+    return dataset, device, dtype
+
+
+def _training_overrides(recipe: TrainRecipe | RefitRecipe) -> dict[str, Any]:
     training = recipe.training.overrides()
     torch.manual_seed(training.get("seed", PortalTrainingConfig.seed))
-    dataset = _load_dataset(recipe)
+    return training
+
+
+def _run_train(recipe: TrainRecipe) -> None:
+    training = _training_overrides(recipe)
+    dataset, device, dtype = _load_runtime(recipe)
     tasks = recipe.tasks or dataset.tasks
-    device, dtype = runtime_device(recipe.runtime.device, recipe.runtime.dtype)
     config = PortalTrainingConfig(**training, checkpoint_dir=recipe.output_dir / "checkpoints")
     bases = [load_base(base.to_runtime(), device=device, dtype=dtype) for base in recipe.bases]
     result = PortalCoreTrainer(bases, dataset, tasks=tasks, config=config).train(
@@ -75,12 +75,9 @@ def _run_train(recipe: TrainRecipe) -> None:
 
 
 def _run_refit(recipe: RefitRecipe) -> None:
-    training = recipe.training.overrides()
-    seed = training.get("seed", PortalTrainingConfig.seed)
-    torch.manual_seed(seed)
-    dataset = _load_dataset(recipe)
+    training = _training_overrides(recipe)
+    dataset, device, dtype = _load_runtime(recipe)
     source = PortalModel.from_pretrained(recipe.source_artifact, revision=recipe.source_artifact_revision)
-    device, dtype = runtime_device(recipe.runtime.device, recipe.runtime.dtype)
     target = load_base(recipe.base.to_runtime(), device=device, dtype=dtype)
     config = PortalTrainingConfig.from_portal_config(
         source.config,
@@ -106,22 +103,17 @@ def _run_refit(recipe: RefitRecipe) -> None:
 
 
 def _run_evaluate(recipe: EvaluateRecipe) -> None:
-    dataset = _load_dataset(recipe)
+    dataset, device, dtype = _load_runtime(recipe)
     portal = PortalModel.from_pretrained(recipe.artifact, revision=recipe.artifact_revision)
-    if portal.config.base_model_name_or_path != recipe.base.model_id:
-        raise ValueError(
-            f"artifact expects {portal.config.base_model_name_or_path!r}, but base.model_id is {recipe.base.model_id!r}"
-        )
+    portal.validate_base_model(recipe.base.model_id)
     tasks = recipe.tasks or tuple(portal.config.tasks)
-    device, dtype = runtime_device(recipe.runtime.device, recipe.runtime.dtype)
     base = load_base(recipe.base.to_runtime(), device=device, dtype=dtype)
     evaluator = PortalEvaluator(max_prompt=recipe.max_prompt, batch_size=recipe.batch_size)
-    base_result = evaluator.evaluate(base, dataset, tasks=tasks, max_examples=recipe.max_examples)
-    portal_result = evaluator.evaluate(
+    base_result, portal_result = evaluator.compare(
         base,
         dataset,
+        portal,
         tasks=tasks,
-        portal=portal,
         max_examples=recipe.max_examples,
     )
     _write_result(

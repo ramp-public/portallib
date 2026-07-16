@@ -222,7 +222,7 @@ dimensions, unknown schema versions, and inconsistent target declarations fail e
 - `PortalAdapterRefitter` freezes a source artifact's latents/core and trains only a target alignment.
 - `PortalTrainingConfig.from_portal_config` preserves an artifact's architecture while selecting a
   new optimization recipe for refitting.
-- `PortalEvaluator` batches candidate continuations while reporting character-normalized
+- `PortalEvaluator` evaluates or compares raw and adapted bases while reporting character-normalized
   multiple-choice accuracy and token-mean gold NLL.
 - `EvaluationResult.to_dict` returns the canonical JSON-ready evaluation representation.
 - `PortalDecoder` combines a canonical core and one base-specific alignment to generate LoRA factors.

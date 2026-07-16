@@ -77,17 +77,7 @@ def refit_config(source: PortalModel) -> PortalTrainingConfig:
 
 
 def print_epoch(epoch) -> None:
-    print(
-        json.dumps(
-            {
-                "phase": "refit",
-                "epoch": epoch.epoch,
-                "acc_norm": epoch.macro_accuracy,
-                "gold_nll": epoch.macro_gold_nll,
-            }
-        ),
-        flush=True,
-    )
+    print(json.dumps({"phase": "refit", **epoch.to_dict()}), flush=True)
 
 
 def main() -> None:

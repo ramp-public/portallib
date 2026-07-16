@@ -61,11 +61,27 @@ def _as_tuple(value: Any) -> Any:
     return tuple(value) if isinstance(value, list) else value
 
 
+def _unique_nonempty(value: tuple[str, ...]) -> tuple[str, ...]:
+    if not value or len(value) != len(set(value)):
+        raise ValueError("must be non-empty and contain no duplicates")
+    return value
+
+
+def _supported_modules(value: tuple[str, ...]) -> tuple[str, ...]:
+    unknown = sorted(set(value) - SUPPORTED_MODULES)
+    if unknown:
+        raise ValueError(f"unsupported module names: {', '.join(unknown)}")
+    return value
+
+
 NonEmptyStr = Annotated[str, StringConstraints(min_length=1), AfterValidator(_non_blank)]
 PositiveInt = Annotated[int, Field(gt=0)]
 Limit = Annotated[PositiveInt | None, BeforeValidator(_all_to_none)]
 ResolvedPath = Annotated[Path, BeforeValidator(_resolve_path)]
+ResolvedLocation = Annotated[NonEmptyStr, BeforeValidator(_resolve_location)]
 StringTuple = Annotated[tuple[NonEmptyStr, ...], BeforeValidator(_as_tuple)]
+UniqueStringTuple = Annotated[StringTuple, AfterValidator(_unique_nonempty)]
+ModuleTuple = Annotated[UniqueStringTuple, AfterValidator(_supported_modules)]
 DTypeName = Literal["bfloat16", "float16", "float32"]
 
 
@@ -107,18 +123,13 @@ class RuntimeRecipe(_StrictModel):
 
 
 class BaseModelRecipe(_StrictModel):
-    model_id: NonEmptyStr
+    model_id: ResolvedLocation
     revision: NonEmptyStr | None = None
     layer_path: NonEmptyStr = "model.layers"
     module_paths: dict[NonEmptyStr, NonEmptyStr] | None = None
     dtype: DTypeName | None = None
     device_map: NonEmptyStr | dict[NonEmptyStr, int | NonEmptyStr] | None = None
     attn_implementation: NonEmptyStr | None = None
-
-    @field_validator("model_id")
-    @classmethod
-    def resolve_model_id(cls, value: str, info: ValidationInfo) -> str:
-        return _resolve_location(value, info)
 
     @field_validator("dtype", mode="before")
     @classmethod
@@ -169,7 +180,7 @@ class _TrainingRecipe(_StrictModel):
 
 
 class TrainSettings(_TrainingRecipe):
-    modules: StringTuple | None = None
+    modules: ModuleTuple | None = None
     rank: PositiveInt | None = None
     alpha: PositiveInt | None = None
     d_z: PositiveInt | None = None
@@ -181,20 +192,6 @@ class TrainSettings(_TrainingRecipe):
     source_steps_per_epoch: PositiveInt | None = None
     latent_learning_rate: float | None = None
 
-    @field_validator("modules")
-    @classmethod
-    def validate_modules(cls, value: tuple[str, ...] | None) -> tuple[str, ...] | None:
-        if value is None:
-            return None
-        if not value:
-            raise ValueError("must not be empty")
-        if len(value) != len(set(value)):
-            raise ValueError("must not contain duplicates")
-        unknown = sorted(set(value) - SUPPORTED_MODULES)
-        if unknown:
-            raise ValueError(f"unsupported module names: {', '.join(unknown)}")
-        return value
-
 
 class RefitSettings(_TrainingRecipe):
     pass
@@ -205,15 +202,8 @@ class CommonRecipe(_StrictModel):
     kind: Literal["train", "refit", "evaluate"]
     dataset: DatasetRecipe
     runtime: RuntimeRecipe = Field(default_factory=RuntimeRecipe)
-    tasks: StringTuple | None = None
+    tasks: UniqueStringTuple | None = None
     result_path: ResolvedPath | None = None
-
-    @field_validator("tasks")
-    @classmethod
-    def validate_tasks(cls, value: tuple[str, ...] | None) -> tuple[str, ...] | None:
-        if value is not None and (not value or len(value) != len(set(value))):
-            raise ValueError("must be non-empty and contain no duplicates")
-        return value
 
 
 class _OutputRecipe(CommonRecipe):
@@ -243,30 +233,20 @@ class TrainRecipe(_OutputRecipe):
 class RefitRecipe(_OutputRecipe):
     kind: Literal["refit"]
     tasks: None = None
-    source_artifact: NonEmptyStr
+    source_artifact: ResolvedLocation
     source_artifact_revision: NonEmptyStr | None = None
     base: BaseModelRecipe
     training: RefitSettings = Field(default_factory=RefitSettings)
 
-    @field_validator("source_artifact")
-    @classmethod
-    def resolve_source_artifact(cls, value: str, info: ValidationInfo) -> str:
-        return _resolve_location(value, info)
-
 
 class EvaluateRecipe(CommonRecipe):
     kind: Literal["evaluate"]
-    artifact: NonEmptyStr
+    artifact: ResolvedLocation
     artifact_revision: NonEmptyStr | None = None
     base: BaseModelRecipe
     max_examples: Limit = 1000
     max_prompt: PositiveInt = 768
     batch_size: PositiveInt = 8
-
-    @field_validator("artifact")
-    @classmethod
-    def resolve_artifact(cls, value: str, info: ValidationInfo) -> str:
-        return _resolve_location(value, info)
 
 
 CliRecipe = Annotated[TrainRecipe | RefitRecipe | EvaluateRecipe, Field(discriminator="kind")]

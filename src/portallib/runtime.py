@@ -8,6 +8,8 @@ from typing import Any
 
 import torch
 
+from ._naming import model_slug
+from ._paths import validate_dotted_path
 from .data import ChoiceDataset
 from .evaluation import PortalBase
 
@@ -27,14 +29,12 @@ class BaseModelSpec:
     def __post_init__(self) -> None:
         if not self.model_id.strip():
             raise ValueError("base model_id must not be empty")
-        if not self.layer_path or any(not part for part in self.layer_path.split(".")):
-            raise ValueError("base layer_path must be a non-empty dotted path")
+        validate_dotted_path(self.layer_path, name="base layer_path")
         if self.module_paths is not None:
-            if not self.module_paths or any(
-                not name or not path or any(not part for part in path.split("."))
-                for name, path in self.module_paths.items()
-            ):
+            if not self.module_paths or any(not name for name in self.module_paths):
                 raise ValueError("base module_paths must map non-empty names to dotted paths")
+            for path in self.module_paths.values():
+                validate_dotted_path(path, name="base module_paths values")
 
 
 def load_dataset(source: str, *, revision: str | None) -> ChoiceDataset:
@@ -96,8 +96,3 @@ def load_base(recipe: BaseModelSpec, *, device: torch.device, dtype: torch.dtype
         layer_path=recipe.layer_path,
         module_paths=recipe.module_paths,
     )
-
-
-def model_slug(model_id: str) -> str:
-    """Return a stable filesystem name for a Hub model ID."""
-    return model_id.rsplit("/", 1)[-1].lower().replace(".", "-")

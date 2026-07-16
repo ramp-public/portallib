@@ -45,21 +45,17 @@ EVAL_BATCH_SIZE = 8
 def main() -> None:
     dataset = load_dataset(DATASET, revision=DATASET_REVISION)
     portal = PortalModel.from_pretrained(PORTAL_ARTIFACT, revision=PORTAL_ARTIFACT_REVISION)
-    if portal.config.base_model_name_or_path != BASE.model_id:
-        raise ValueError(
-            f"artifact expects {portal.config.base_model_name_or_path!r}, but BASE selects {BASE.model_id!r}"
-        )
+    portal.validate_base_model(BASE.model_id)
 
     device, dtype = runtime_device()
     base = load_base(BASE, device=device, dtype=dtype)
     evaluator = PortalEvaluator(max_prompt=MAX_PROMPT, batch_size=EVAL_BATCH_SIZE)
     tasks = tuple(portal.config.tasks)
-    base_result = evaluator.evaluate(base, dataset, tasks=tasks, max_examples=MAX_EXAMPLES)
-    portal_result = evaluator.evaluate(
+    base_result, portal_result = evaluator.compare(
         base,
         dataset,
+        portal,
         tasks=tasks,
-        portal=portal,
         max_examples=MAX_EXAMPLES,
     )
     print(

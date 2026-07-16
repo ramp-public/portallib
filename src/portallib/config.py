@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Iterator
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
+
+from ._paths import exact_module_path, validate_dotted_path
 
 
 DEFAULT_MODULE_PATHS = {
@@ -18,6 +21,7 @@ DEFAULT_MODULE_PATHS = {
     "down": "mlp.down_proj",
 }
 SUPPORTED_MODULES = frozenset(DEFAULT_MODULE_PATHS)
+_ARCHITECTURE_FIELDS = ("modules", "rank", "alpha", "d_z", "d_layer", "hidden", "d_core")
 
 
 @dataclass(frozen=True)
@@ -81,10 +85,9 @@ class PortalConfig:
             object.__setattr__(self, "module_paths", {name: DEFAULT_MODULE_PATHS[name] for name in self.in_dims})
         if set(self.module_paths) != modules:
             raise ValueError("module_paths must describe exactly the configured modules")
-        if not self.layer_path or any(not part for part in self.layer_path.split(".")):
-            raise ValueError("layer_path must be a non-empty dotted path")
-        if any(not path or any(not part for part in path.split(".")) for path in self.module_paths.values()):
-            raise ValueError("module_paths values must be non-empty dotted paths")
+        validate_dotted_path(self.layer_path, name="layer_path")
+        for path in self.module_paths.values():
+            validate_dotted_path(path, name="module_paths values")
         if any(not isinstance(dim, int) or dim <= 0 for dim in (*self.in_dims.values(), *self.out_dims.values())):
             raise ValueError("all projection dimensions must be positive integers")
         expected_targets = {path.rsplit(".", 1)[-1] for path in self.module_paths.values()}
@@ -103,16 +106,17 @@ class PortalConfig:
 
     def shared_signature(self) -> tuple[Any, ...]:
         """Return fields that must match when a canonical core is shared across bases."""
-        return (
-            tuple(self.tasks),
-            self.modules,
-            self.rank,
-            self.alpha,
-            self.d_z,
-            self.d_layer,
-            self.hidden,
-            self.d_core,
-        )
+        return (tuple(self.tasks), *self.architecture_kwargs().values())
+
+    def architecture_kwargs(self) -> dict[str, Any]:
+        """Return the canonical architecture fields shared by training and refitting."""
+        return {name: getattr(self, name) for name in _ARCHITECTURE_FIELDS}
+
+    def targets(self) -> Iterator[tuple[int, str, str]]:
+        """Yield every configured target as ``(layer, short name, exact path)``."""
+        for layer_index in range(self.n_layers):
+            for short_name, module_path in self.module_paths.items():
+                yield layer_index, short_name, exact_module_path(self.layer_path, layer_index, module_path)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -163,7 +167,7 @@ class PortalConfig:
         for short_name, relative_path in paths.items():
             dimensions: set[tuple[int, int]] = set()
             for layer_index in range(n_layers):
-                exact_path = f"{layer_path}.{layer_index}.{relative_path}"
+                exact_path = exact_module_path(layer_path, layer_index, relative_path)
                 try:
                     projection = model.get_submodule(exact_path)
                     dimensions.add((projection.in_features, projection.out_features))
