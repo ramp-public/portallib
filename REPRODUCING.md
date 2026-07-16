@@ -14,7 +14,7 @@ model IDs, revisions, data budgets, and optimization settings are visible and ed
 ```bash
 git clone https://github.com/ramp-public/portallib
 cd portallib
-python -m pip install 'portallib[training]==0.1.0'
+python -m pip install 'portallib[training]==0.1.1'
 ```
 
 Install the CUDA-compatible PyTorch build required by your GPU platform before the command above

@@ -1,6 +1,6 @@
 [project]
 name = "portallib"
-version = "0.1.0"
+version = "0.1.1"
 description = "Generate portable task-specific LoRA adapters across language models"
 readme = "README.md"
 requires-python = ">=3.11"
