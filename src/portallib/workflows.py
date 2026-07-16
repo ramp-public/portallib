@@ -42,18 +42,17 @@ def _epoch_event(phase: str, epoch: EpochMetrics) -> dict[str, Any]:
 
 
 def _load_recipe_dataset(recipe: DatasetRecipe) -> ChoiceDataset:
-    if recipe.local:
-        return ChoiceDataset.from_json(recipe.source)
     return load_dataset(recipe.source, revision=recipe.revision)
 
 
 def _run_train(recipe: TrainRecipe) -> None:
-    torch.manual_seed(recipe.training.get("seed", PortalTrainingConfig.seed))
+    training = recipe.training.overrides()
+    torch.manual_seed(training.get("seed", PortalTrainingConfig.seed))
     dataset = _load_recipe_dataset(recipe.dataset)
     tasks = recipe.tasks or dataset.tasks
     device, dtype = runtime_device(recipe.runtime.device, recipe.runtime.dtype)
-    config = PortalTrainingConfig(**recipe.training, checkpoint_dir=recipe.output_dir / "checkpoints")
-    bases = [load_base(base, device=device, dtype=dtype) for base in recipe.bases]
+    config = PortalTrainingConfig(**training, checkpoint_dir=recipe.output_dir / "checkpoints")
+    bases = [load_base(base.to_runtime(), device=device, dtype=dtype) for base in recipe.bases]
     result = PortalCoreTrainer(bases, dataset, tasks=tasks, config=config).train(
         on_epoch=lambda epoch: _emit(_epoch_event("train", epoch))
     )
@@ -76,15 +75,16 @@ def _run_train(recipe: TrainRecipe) -> None:
 
 
 def _run_refit(recipe: RefitRecipe) -> None:
-    seed = recipe.training.get("seed", PortalTrainingConfig.seed)
+    training = recipe.training.overrides()
+    seed = training.get("seed", PortalTrainingConfig.seed)
     torch.manual_seed(seed)
     dataset = _load_recipe_dataset(recipe.dataset)
     source = PortalModel.from_pretrained(recipe.source_artifact, revision=recipe.source_artifact_revision)
     device, dtype = runtime_device(recipe.runtime.device, recipe.runtime.dtype)
-    target = load_base(recipe.base, device=device, dtype=dtype)
+    target = load_base(recipe.base.to_runtime(), device=device, dtype=dtype)
     config = PortalTrainingConfig.from_portal_config(
         source.config,
-        **recipe.training,
+        **training,
         checkpoint_dir=recipe.output_dir / "checkpoints",
     )
     result = PortalAdapterRefitter(source, target, dataset, config=config).refit(
@@ -114,7 +114,7 @@ def _run_evaluate(recipe: EvaluateRecipe) -> None:
         )
     tasks = recipe.tasks or tuple(portal.config.tasks)
     device, dtype = runtime_device(recipe.runtime.device, recipe.runtime.dtype)
-    base = load_base(recipe.base, device=device, dtype=dtype)
+    base = load_base(recipe.base.to_runtime(), device=device, dtype=dtype)
     evaluator = PortalEvaluator(max_prompt=recipe.max_prompt, batch_size=recipe.batch_size)
     base_result = evaluator.evaluate(base, dataset, tasks=tasks, max_examples=recipe.max_examples)
     portal_result = evaluator.evaluate(

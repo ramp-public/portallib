@@ -21,6 +21,7 @@ classifiers = [
 dependencies = [
   "huggingface-hub>=0.30,<2",
   "peft>=0.15,<1",
+  "pydantic>=2.11,<3",
   "safetensors>=0.4,<1",
   "torch>=2.2",
 ]

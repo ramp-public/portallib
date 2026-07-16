@@ -3,11 +3,22 @@
 from __future__ import annotations
 
 import tomllib
-from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
 import torch
+from pydantic import (
+    AfterValidator,
+    BaseModel,
+    ConfigDict,
+    Field,
+    StringConstraints,
+    TypeAdapter,
+    ValidationError,
+    ValidationInfo,
+    field_validator,
+    model_validator,
+)
 
 from .config import SUPPORTED_MODULES
 from .runtime import BaseRecipe
@@ -18,405 +29,290 @@ class RecipeError(ValueError):
     """A structurally invalid CLI recipe."""
 
 
-@dataclass(frozen=True)
-class DatasetRecipe:
-    source: str
-    revision: str | None
-    local: bool
+def _non_blank(value: str) -> str:
+    if not value.strip():
+        raise ValueError("must not be blank")
+    return value
 
 
-@dataclass(frozen=True)
-class RuntimeRecipe:
-    device: str = "auto"
-    dtype: str = "auto"
+NonEmptyStr = Annotated[str, StringConstraints(min_length=1), AfterValidator(_non_blank)]
+PositiveInt = Annotated[int, Field(gt=0)]
+Limit = PositiveInt | None
+DTypeName = Literal["bfloat16", "float16", "float32"]
 
 
-@dataclass(frozen=True)
-class CommonRecipe:
+def _parent(info: ValidationInfo) -> Path:
+    if not info.context or "parent" not in info.context:
+        raise ValueError("recipe path context is missing")
+    return info.context["parent"]
+
+
+def _resolve_path(value: Any, info: ValidationInfo) -> Path:
+    path = Path(value).expanduser()
+    return path.resolve() if path.is_absolute() else (_parent(info) / path).resolve()
+
+
+def _resolve_location(value: str, info: ValidationInfo) -> str:
+    if value.startswith(("./", "../", "~/")) or Path(value).is_absolute():
+        return str(_resolve_path(value, info))
+    return value
+
+
+def _all_to_none(value: Any) -> Any:
+    return None if value == "all" else value
+
+
+class _StrictModel(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
+
+
+class DatasetRecipe(_StrictModel):
+    repo_id: NonEmptyStr | None = None
+    path: Path | None = None
+    revision: NonEmptyStr | None = None
+
+    @field_validator("path", mode="before")
+    @classmethod
+    def resolve_path(cls, value: Any, info: ValidationInfo) -> Path | None:
+        return None if value is None else _resolve_path(value, info)
+
+    @model_validator(mode="after")
+    def validate_source(self) -> "DatasetRecipe":
+        if (self.repo_id is None) == (self.path is None):
+            raise ValueError("define exactly one of repo_id or path")
+        if self.path is not None and self.revision is not None:
+            raise ValueError("revision is not allowed with path")
+        return self
+
+    @property
+    def source(self) -> str:
+        return str(self.path) if self.path is not None else self.repo_id or ""
+
+
+class RuntimeRecipe(_StrictModel):
+    device: NonEmptyStr = "auto"
+    dtype: Literal["auto", "bfloat16", "float16", "float32"] = "auto"
+
+    @field_validator("device")
+    @classmethod
+    def validate_device(cls, value: str) -> str:
+        if value != "auto":
+            try:
+                torch.device(value)
+            except (RuntimeError, ValueError) as exc:
+                raise ValueError(f"invalid torch device {value!r}") from exc
+        return value
+
+
+class BaseModelRecipe(_StrictModel):
+    model_id: NonEmptyStr
+    revision: NonEmptyStr | None = None
+    layer_path: NonEmptyStr = "model.layers"
+    module_paths: dict[NonEmptyStr, NonEmptyStr] | None = None
+    dtype: DTypeName | None = None
+    device_map: NonEmptyStr | dict[NonEmptyStr, int | NonEmptyStr] | None = None
+    attn_implementation: NonEmptyStr | None = None
+
+    @field_validator("model_id")
+    @classmethod
+    def resolve_model_id(cls, value: str, info: ValidationInfo) -> str:
+        return _resolve_location(value, info)
+
+    @field_validator("dtype", mode="before")
+    @classmethod
+    def normalize_dtype(cls, value: Any) -> Any:
+        return None if value == "auto" else value
+
+    @model_validator(mode="after")
+    def validate_runtime_recipe(self) -> "BaseModelRecipe":
+        try:
+            self.to_runtime()
+        except ValueError as exc:
+            raise ValueError(str(exc)) from exc
+        return self
+
+    def to_runtime(self) -> BaseRecipe:
+        return BaseRecipe(**self.model_dump())
+
+
+class _TrainingRecipe(_StrictModel):
+    refit_max_examples: PositiveInt | None = None
+    eval_max_examples: Limit = None
+    eval_batch_size: PositiveInt | None = None
+    epochs: PositiveInt | None = None
+    batch_size: PositiveInt | None = None
+    learning_rate: float | None = None
+    lr_scheduler: Literal["constant", "linear"] | None = None
+    warmup_ratio: float | None = None
+    weight_decay: float | None = None
+    grad_clip: float | None = None
+    ema_decay: float | None = None
+    ema_floor: float | None = None
+    max_prompt: PositiveInt | None = None
+    seed: int | None = None
+    gradient_checkpointing: bool | None = None
+    early_stopping_patience: PositiveInt | None = None
+    task_regression_threshold: float | None = None
+
+    @field_validator("eval_max_examples", mode="before")
+    @classmethod
+    def normalize_limits(cls, value: Any) -> Any:
+        return _all_to_none(value)
+
+    @model_validator(mode="after")
+    def validate_training_config(self) -> "_TrainingRecipe":
+        try:
+            PortalTrainingConfig(**self.overrides())
+        except (TypeError, ValueError) as exc:
+            raise ValueError(str(exc)) from exc
+        return self
+
+    def overrides(self) -> dict[str, Any]:
+        return self.model_dump(exclude_unset=True)
+
+
+class TrainSettings(_TrainingRecipe):
+    modules: tuple[NonEmptyStr, ...] | None = None
+    rank: PositiveInt | None = None
+    alpha: PositiveInt | None = None
+    d_z: PositiveInt | None = None
+    d_layer: PositiveInt | None = None
+    hidden: PositiveInt | None = None
+    d_core: PositiveInt | None = None
+    source_max_examples: Limit = None
+    source_resample_each_epoch: bool | None = None
+    source_steps_per_epoch: PositiveInt | None = None
+    latent_learning_rate: float | None = None
+
+    @field_validator("source_max_examples", mode="before")
+    @classmethod
+    def normalize_source_limit(cls, value: Any) -> Any:
+        return _all_to_none(value)
+
+    @field_validator("modules", mode="before")
+    @classmethod
+    def validate_modules(cls, value: Any) -> tuple[str, ...] | None:
+        if value is None:
+            return None
+        if isinstance(value, list):
+            value = tuple(value)
+        if not value:
+            raise ValueError("must not be empty")
+        if len(value) != len(set(value)):
+            raise ValueError("must not contain duplicates")
+        unknown = sorted(set(value) - SUPPORTED_MODULES)
+        if unknown:
+            raise ValueError(f"unsupported module names: {', '.join(unknown)}")
+        return value
+
+
+class RefitSettings(_TrainingRecipe):
+    pass
+
+
+class CommonRecipe(_StrictModel):
+    schema_version: Literal[1]
     kind: Literal["train", "refit", "evaluate"]
     dataset: DatasetRecipe
-    runtime: RuntimeRecipe
-    tasks: tuple[str, ...] | None
-    result_path: Path | None
-    config_path: Path
+    runtime: RuntimeRecipe = Field(default_factory=RuntimeRecipe)
+    tasks: tuple[NonEmptyStr, ...] | None = None
+    result_path: Path | None = None
+
+    @field_validator("result_path", mode="before")
+    @classmethod
+    def resolve_result_path(cls, value: Any, info: ValidationInfo) -> Path | None:
+        return None if value is None else _resolve_path(value, info)
+
+    @field_validator("tasks", mode="before")
+    @classmethod
+    def validate_tasks(cls, value: Any) -> tuple[str, ...] | None:
+        if isinstance(value, list):
+            value = tuple(value)
+        if value is not None and (not value or len(value) != len(set(value))):
+            raise ValueError("must be non-empty and contain no duplicates")
+        return value
 
 
-@dataclass(frozen=True)
 class TrainRecipe(CommonRecipe):
+    kind: Literal["train"]
     output_dir: Path
-    bases: tuple[BaseRecipe, ...]
-    training: dict[str, Any] = field(default_factory=dict)
+    bases: tuple[BaseModelRecipe, ...]
+    training: TrainSettings = Field(default_factory=TrainSettings)
+
+    @field_validator("output_dir", mode="before")
+    @classmethod
+    def resolve_output_dir(cls, value: Any, info: ValidationInfo) -> Path:
+        return _resolve_path(value, info)
+
+    @field_validator("bases", mode="before")
+    @classmethod
+    def validate_bases(cls, value: Any) -> tuple[Any, ...]:
+        if isinstance(value, list):
+            value = tuple(value)
+        if not value:
+            raise ValueError("must contain at least one base")
+        return value
+
+    @model_validator(mode="after")
+    def validate_unique_bases(self) -> "TrainRecipe":
+        model_ids = [base.model_id for base in self.bases]
+        if len(model_ids) != len(set(model_ids)):
+            raise ValueError("bases model_id values must be unique")
+        return self
 
 
-@dataclass(frozen=True)
 class RefitRecipe(CommonRecipe):
+    kind: Literal["refit"]
+    tasks: None = None
     output_dir: Path
-    source_artifact: str
-    source_artifact_revision: str | None
-    base: BaseRecipe
-    training: dict[str, Any] = field(default_factory=dict)
+    source_artifact: NonEmptyStr
+    source_artifact_revision: NonEmptyStr | None = None
+    base: BaseModelRecipe
+    training: RefitSettings = Field(default_factory=RefitSettings)
+
+    @field_validator("output_dir", mode="before")
+    @classmethod
+    def resolve_output_dir(cls, value: Any, info: ValidationInfo) -> Path:
+        return _resolve_path(value, info)
+
+    @field_validator("source_artifact")
+    @classmethod
+    def resolve_source_artifact(cls, value: str, info: ValidationInfo) -> str:
+        return _resolve_location(value, info)
 
 
-@dataclass(frozen=True)
 class EvaluateRecipe(CommonRecipe):
-    artifact: str
-    artifact_revision: str | None
-    base: BaseRecipe
-    max_examples: int | None = 1000
-    max_prompt: int = 768
-    batch_size: int = 8
+    kind: Literal["evaluate"]
+    artifact: NonEmptyStr
+    artifact_revision: NonEmptyStr | None = None
+    base: BaseModelRecipe
+    max_examples: Limit = 1000
+    max_prompt: PositiveInt = 768
+    batch_size: PositiveInt = 8
+
+    @field_validator("artifact")
+    @classmethod
+    def resolve_artifact(cls, value: str, info: ValidationInfo) -> str:
+        return _resolve_location(value, info)
+
+    @field_validator("max_examples", mode="before")
+    @classmethod
+    def normalize_max_examples(cls, value: Any) -> Any:
+        return _all_to_none(value)
 
 
-CliRecipe = TrainRecipe | RefitRecipe | EvaluateRecipe
-
-_COMMON_KEYS = {"schema_version", "kind", "dataset", "runtime", "tasks", "result_path"}
-_TRAIN_KEYS = _COMMON_KEYS | {"output_dir", "bases", "training"}
-_REFIT_KEYS = (_COMMON_KEYS - {"tasks"}) | {
-    "output_dir",
-    "source_artifact",
-    "source_artifact_revision",
-    "base",
-    "training",
-}
-_EVALUATE_KEYS = _COMMON_KEYS | {
-    "artifact",
-    "artifact_revision",
-    "base",
-    "max_examples",
-    "max_prompt",
-    "batch_size",
-}
-_BASE_KEYS = {
-    "model_id",
-    "revision",
-    "layer_path",
-    "module_paths",
-    "dtype",
-    "device_map",
-    "attn_implementation",
-}
-_TRAINING_KEYS = {
-    "modules",
-    "rank",
-    "alpha",
-    "d_z",
-    "d_layer",
-    "hidden",
-    "d_core",
-    "source_max_examples",
-    "source_resample_each_epoch",
-    "source_steps_per_epoch",
-    "refit_max_examples",
-    "eval_max_examples",
-    "eval_batch_size",
-    "epochs",
-    "batch_size",
-    "learning_rate",
-    "latent_learning_rate",
-    "lr_scheduler",
-    "warmup_ratio",
-    "weight_decay",
-    "grad_clip",
-    "ema_decay",
-    "ema_floor",
-    "max_prompt",
-    "seed",
-    "gradient_checkpointing",
-    "early_stopping_patience",
-    "task_regression_threshold",
-}
-_REFIT_TRAINING_KEYS = _TRAINING_KEYS - {
-    "modules",
-    "rank",
-    "alpha",
-    "d_z",
-    "d_layer",
-    "hidden",
-    "d_core",
-    "source_max_examples",
-    "source_resample_each_epoch",
-    "source_steps_per_epoch",
-    "latent_learning_rate",
-}
-_INTEGER_TRAINING_KEYS = {
-    "rank",
-    "alpha",
-    "d_z",
-    "d_layer",
-    "hidden",
-    "d_core",
-    "source_steps_per_epoch",
-    "refit_max_examples",
-    "eval_batch_size",
-    "epochs",
-    "batch_size",
-    "max_prompt",
-    "seed",
-    "early_stopping_patience",
-}
-_FLOAT_TRAINING_KEYS = {
-    "learning_rate",
-    "latent_learning_rate",
-    "warmup_ratio",
-    "weight_decay",
-    "grad_clip",
-    "ema_decay",
-    "ema_floor",
-    "task_regression_threshold",
-}
-_BOOLEAN_TRAINING_KEYS = {"source_resample_each_epoch", "gradient_checkpointing"}
-_ALL_OR_INTEGER_TRAINING_KEYS = {"source_max_examples", "eval_max_examples"}
+CliRecipe = Annotated[TrainRecipe | RefitRecipe | EvaluateRecipe, Field(discriminator="kind")]
+_RECIPE_ADAPTER = TypeAdapter(CliRecipe)
 
 
-def _check_keys(
-    value: dict[str, Any],
-    *,
-    allowed: set[str],
-    required: set[str] = frozenset(),
-    context: str,
-) -> None:
-    unknown = sorted(set(value) - allowed)
-    if unknown:
-        raise RecipeError(f"{context} has unknown keys: {', '.join(unknown)}")
-    missing = sorted(required - set(value))
-    if missing:
-        raise RecipeError(f"{context} is missing required keys: {', '.join(missing)}")
-
-
-def _table(value: Any, context: str) -> dict[str, Any]:
-    if not isinstance(value, dict):
-        raise RecipeError(f"{context} must be a TOML table")
-    return value
-
-
-def _string(value: Any, context: str) -> str:
-    if not isinstance(value, str) or not value.strip():
-        raise RecipeError(f"{context} must be a non-empty string")
-    return value
-
-
-def _optional_string(value: Any, context: str) -> str | None:
-    return None if value is None else _string(value, context)
-
-
-def _positive_int(value: Any, context: str) -> int:
-    if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
-        raise RecipeError(f"{context} must be a positive integer")
-    return value
-
-
-def _path(value: Any, *, parent: Path, context: str) -> Path:
-    path = Path(_string(value, context)).expanduser()
-    return path.resolve() if path.is_absolute() else (parent / path).resolve()
-
-
-def _location(value: Any, *, parent: Path, context: str) -> str:
-    location = _string(value, context)
-    if location.startswith(("./", "../", "~/")) or Path(location).is_absolute():
-        return str(_path(location, parent=parent, context=context))
-    return location
-
-
-def _tasks(value: Any) -> tuple[str, ...] | None:
-    if value is None:
-        return None
-    if not isinstance(value, list) or not value or any(not isinstance(task, str) or not task.strip() for task in value):
-        raise RecipeError("tasks must be a non-empty array of task names")
-    if len(value) != len(set(value)):
-        raise RecipeError("tasks must not contain duplicates")
-    return tuple(value)
-
-
-def _parse_dataset(value: Any, *, parent: Path) -> DatasetRecipe:
-    table = _table(value, "dataset")
-    _check_keys(table, allowed={"repo_id", "path", "revision"}, context="dataset")
-    has_repo = "repo_id" in table
-    has_path = "path" in table
-    if has_repo == has_path:
-        raise RecipeError("dataset must define exactly one of repo_id or path")
-    revision = _optional_string(table.get("revision"), "dataset.revision")
-    if has_path:
-        if revision is not None:
-            raise RecipeError("dataset.revision is not allowed with dataset.path")
-        source = str(_path(table["path"], parent=parent, context="dataset.path"))
-    else:
-        source = _string(table["repo_id"], "dataset.repo_id")
-    return DatasetRecipe(source, revision, has_path)
-
-
-def _parse_runtime(value: Any) -> RuntimeRecipe:
-    if value is None:
-        return RuntimeRecipe()
-    table = _table(value, "runtime")
-    _check_keys(table, allowed={"device", "dtype"}, context="runtime")
-    device = _string(table.get("device", "auto"), "runtime.device")
-    dtype = _string(table.get("dtype", "auto"), "runtime.dtype")
-    if dtype not in {"auto", "bfloat16", "float16", "float32"}:
-        raise RecipeError("runtime.dtype must be 'auto', 'bfloat16', 'float16', or 'float32'")
-    try:
-        if device != "auto":
-            torch.device(device)
-    except (RuntimeError, ValueError) as exc:
-        raise RecipeError(f"runtime.device is invalid: {device!r}") from exc
-    return RuntimeRecipe(device, dtype)
-
-
-def _parse_base(value: Any, context: str, *, parent: Path) -> BaseRecipe:
-    table = _table(value, context)
-    _check_keys(table, allowed=_BASE_KEYS, required={"model_id"}, context=context)
-    module_paths = table.get("module_paths")
-    if module_paths is not None:
-        module_paths = _table(module_paths, f"{context}.module_paths")
-        if not module_paths:
-            raise RecipeError(f"{context}.module_paths must not be empty")
-        if any(not isinstance(name, str) or not isinstance(path, str) for name, path in module_paths.items()):
-            raise RecipeError(f"{context}.module_paths must map strings to strings")
-    dtype = _optional_string(table.get("dtype"), f"{context}.dtype")
-    if dtype == "auto":
-        dtype = None
-    if dtype is not None and dtype not in {"bfloat16", "float16", "float32"}:
-        raise RecipeError(f"{context}.dtype must be 'auto', 'bfloat16', 'float16', or 'float32'")
-    device_map = table.get("device_map")
-    if device_map is not None and not isinstance(device_map, (str, dict)):
-        raise RecipeError(f"{context}.device_map must be a string or TOML table")
-    if isinstance(device_map, dict) and any(
-        not isinstance(name, str) or isinstance(target, bool) or not isinstance(target, (str, int))
-        for name, target in device_map.items()
-    ):
-        raise RecipeError(f"{context}.device_map values must be device strings or integer device indexes")
-    try:
-        return BaseRecipe(
-            model_id=_location(table["model_id"], parent=parent, context=f"{context}.model_id"),
-            revision=_optional_string(table.get("revision"), f"{context}.revision"),
-            layer_path=_string(table.get("layer_path", "model.layers"), f"{context}.layer_path"),
-            module_paths=module_paths,
-            dtype=dtype,
-            device_map=device_map,
-            attn_implementation=_optional_string(
-                table.get("attn_implementation"),
-                f"{context}.attn_implementation",
-            ),
-        )
-    except ValueError as exc:
-        raise RecipeError(f"{context} is invalid: {exc}") from exc
-
-
-def _parse_training(value: Any, *, refit: bool) -> dict[str, Any]:
-    if value is None:
-        return {}
-    table = _table(value, "training")
-    allowed = _REFIT_TRAINING_KEYS if refit else _TRAINING_KEYS
-    _check_keys(table, allowed=allowed, context="training")
-    parsed: dict[str, Any] = {}
-    for name, raw in table.items():
-        context = f"training.{name}"
-        if name == "modules":
-            if not isinstance(raw, list) or not raw or any(not isinstance(item, str) or not item for item in raw):
-                raise RecipeError(f"{context} must be a non-empty array of module names")
-            if len(raw) != len(set(raw)):
-                raise RecipeError(f"{context} must not contain duplicates")
-            unknown = sorted(set(raw) - SUPPORTED_MODULES)
-            if unknown:
-                raise RecipeError(f"{context} has unsupported module names: {', '.join(unknown)}")
-            parsed[name] = tuple(raw)
-        elif name in _INTEGER_TRAINING_KEYS:
-            parsed[name] = _positive_int(raw, context) if name != "seed" else _integer(raw, context)
-        elif name in _FLOAT_TRAINING_KEYS:
-            if isinstance(raw, bool) or not isinstance(raw, (int, float)):
-                raise RecipeError(f"{context} must be a number")
-            parsed[name] = float(raw)
-        elif name in _BOOLEAN_TRAINING_KEYS:
-            if not isinstance(raw, bool):
-                raise RecipeError(f"{context} must be true or false")
-            parsed[name] = raw
-        elif name in _ALL_OR_INTEGER_TRAINING_KEYS:
-            if raw == "all":
-                parsed[name] = None
-            else:
-                parsed[name] = _positive_int(raw, context)
-        elif name == "lr_scheduler":
-            parsed[name] = _string(raw, context)
-        else:
-            raise AssertionError(f"unhandled training field: {name}")
-    try:
-        PortalTrainingConfig(**parsed)
-    except (TypeError, ValueError) as exc:
-        raise RecipeError(f"training is invalid: {exc}") from exc
-    return parsed
-
-
-def _integer(value: Any, context: str) -> int:
-    if isinstance(value, bool) or not isinstance(value, int):
-        raise RecipeError(f"{context} must be an integer")
-    return value
-
-
-def load_recipe(path: str | Path) -> CliRecipe:
+def load_recipe(path: str | Path) -> TrainRecipe | RefitRecipe | EvaluateRecipe:
     """Parse and strictly validate one versioned TOML recipe without loading models."""
     config_path = Path(path).expanduser().resolve()
     try:
         value = tomllib.loads(config_path.read_text(encoding="utf-8"))
     except tomllib.TOMLDecodeError as exc:
         raise RecipeError(f"invalid TOML in {config_path}: {exc}") from exc
-    if not isinstance(value, dict):
-        raise RecipeError("recipe root must be a TOML table")
-    if value.get("schema_version") != 1:
-        raise RecipeError("schema_version must be 1")
-    kind = value.get("kind")
-    if kind not in {"train", "refit", "evaluate"}:
-        raise RecipeError("kind must be 'train', 'refit', or 'evaluate'")
-    allowed = {"train": _TRAIN_KEYS, "refit": _REFIT_KEYS, "evaluate": _EVALUATE_KEYS}[kind]
-    required = {
-        "train": {"schema_version", "kind", "dataset", "output_dir", "bases"},
-        "refit": {"schema_version", "kind", "dataset", "output_dir", "source_artifact", "base"},
-        "evaluate": {"schema_version", "kind", "dataset", "artifact", "base"},
-    }[kind]
-    _check_keys(value, allowed=allowed, required=required, context="recipe")
-    parent = config_path.parent
-    common = {
-        "kind": kind,
-        "dataset": _parse_dataset(value["dataset"], parent=parent),
-        "runtime": _parse_runtime(value.get("runtime")),
-        "tasks": _tasks(value.get("tasks")),
-        "result_path": (
-            _path(value["result_path"], parent=parent, context="result_path") if "result_path" in value else None
-        ),
-        "config_path": config_path,
-    }
-    if kind == "train":
-        bases = value["bases"]
-        if not isinstance(bases, list) or not bases:
-            raise RecipeError("bases must contain at least one [[bases]] table")
-        parsed_bases = tuple(_parse_base(base, f"bases[{index}]", parent=parent) for index, base in enumerate(bases))
-        model_ids = [base.model_id for base in parsed_bases]
-        if len(model_ids) != len(set(model_ids)):
-            raise RecipeError("bases model_id values must be unique")
-        return TrainRecipe(
-            **common,
-            output_dir=_path(value["output_dir"], parent=parent, context="output_dir"),
-            bases=parsed_bases,
-            training=_parse_training(value.get("training"), refit=False),
-        )
-    if kind == "refit":
-        return RefitRecipe(
-            **common,
-            output_dir=_path(value["output_dir"], parent=parent, context="output_dir"),
-            source_artifact=_location(value["source_artifact"], parent=parent, context="source_artifact"),
-            source_artifact_revision=_optional_string(
-                value.get("source_artifact_revision"),
-                "source_artifact_revision",
-            ),
-            base=_parse_base(value["base"], "base", parent=parent),
-            training=_parse_training(value.get("training"), refit=True),
-        )
-    max_examples_raw = value.get("max_examples", 1000)
-    max_examples = None if max_examples_raw == "all" else _positive_int(max_examples_raw, "max_examples")
-    return EvaluateRecipe(
-        **common,
-        artifact=_location(value["artifact"], parent=parent, context="artifact"),
-        artifact_revision=_optional_string(value.get("artifact_revision"), "artifact_revision"),
-        base=_parse_base(value["base"], "base", parent=parent),
-        max_examples=max_examples,
-        max_prompt=_positive_int(value.get("max_prompt", 768), "max_prompt"),
-        batch_size=_positive_int(value.get("batch_size", 8), "batch_size"),
-    )
+    try:
+        return _RECIPE_ADAPTER.validate_python(value, context={"parent": config_path.parent})
+    except ValidationError as exc:
+        raise RecipeError(str(exc)) from exc

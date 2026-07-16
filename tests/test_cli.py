@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import importlib.metadata
 import json
-from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -76,7 +75,51 @@ model_id = "example/base"
         encoding="utf-8",
     )
 
-    with pytest.raises(cli.RecipeError, match="unknown keys: token"):
+    with pytest.raises(cli.RecipeError, match="token"):
+        cli.load_recipe(path)
+
+
+def test_recipe_rejects_unknown_nested_keys(tmp_path: Path) -> None:
+    path = tmp_path / "recipe.toml"
+    path.write_text(
+        """
+schema_version = 1
+kind = "evaluate"
+artifact = "example/artifact"
+
+[dataset]
+repo_id = "example/tasks"
+
+[base]
+model_id = "example/base"
+token = "must-not-be-accepted"
+""".strip(),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(cli.RecipeError, match="base.token"):
+        cli.load_recipe(path)
+
+
+def test_recipe_does_not_coerce_toml_field_types(tmp_path: Path) -> None:
+    path = tmp_path / "recipe.toml"
+    path.write_text(
+        """
+schema_version = 1
+kind = "evaluate"
+artifact = "example/artifact"
+batch_size = "8"
+
+[dataset]
+repo_id = "example/tasks"
+
+[base]
+model_id = "example/base"
+""".strip(),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(cli.RecipeError, match="batch_size"):
         cli.load_recipe(path)
 
 
@@ -123,7 +166,6 @@ model_id = "example/base"
 
     recipe = cli.load_recipe(path)
 
-    assert recipe.dataset.local is True
     assert recipe.dataset.source == str(tmp_path / "data" / "tasks.json")
     assert recipe.dataset.revision is None
 
@@ -170,7 +212,7 @@ model_id = "example/base"
         encoding="utf-8",
     )
 
-    with pytest.raises(cli.RecipeError, match="unknown keys: tasks"):
+    with pytest.raises(cli.RecipeError, match="refit.tasks"):
         cli.load_recipe(path)
 
 
@@ -180,7 +222,7 @@ def test_train_command_dispatches_the_parsed_recipe(monkeypatch, capsys) -> None
 
     assert cli.main(["train", "--config", str(CONFIGS / "train.toml")]) == 0
     assert len(received) == 1
-    assert received[0].training["source_steps_per_epoch"] == 500
+    assert received[0].training.source_steps_per_epoch == 500
     assert capsys.readouterr().err == ""
 
 
@@ -202,7 +244,7 @@ def test_runtime_failure_is_structured(monkeypatch, capsys) -> None:
 
 def test_final_result_is_printed_and_persisted(tmp_path: Path, capsys) -> None:
     recipe = cli.load_recipe(CONFIGS / "evaluate.toml")
-    recipe = replace(recipe, result_path=tmp_path / "result.json")
+    recipe = recipe.model_copy(update={"result_path": tmp_path / "result.json"})
     result = {"event": "result", "kind": "evaluate", "score": 0.75}
 
     cli._write_result(recipe, result)
