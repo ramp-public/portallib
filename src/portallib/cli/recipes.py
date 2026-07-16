@@ -253,14 +253,27 @@ CliRecipe = Annotated[TrainRecipe | RefitRecipe | EvaluateRecipe, Field(discrimi
 _RECIPE_ADAPTER = TypeAdapter(CliRecipe)
 
 
+def _parse_recipe(
+    text: str,
+    *,
+    parent: Path,
+    source: str,
+) -> TrainRecipe | RefitRecipe | EvaluateRecipe:
+    try:
+        value = tomllib.loads(text)
+    except tomllib.TOMLDecodeError as exc:
+        raise RecipeError(f"invalid TOML in {source}: {exc}") from exc
+    try:
+        return _RECIPE_ADAPTER.validate_python(value, context={"parent": parent})
+    except ValidationError as exc:
+        raise RecipeError(str(exc)) from exc
+
+
 def load_recipe(path: str | Path) -> TrainRecipe | RefitRecipe | EvaluateRecipe:
     """Parse and strictly validate one versioned TOML recipe without loading models."""
     config_path = Path(path).expanduser().resolve()
-    try:
-        value = tomllib.loads(config_path.read_text(encoding="utf-8"))
-    except tomllib.TOMLDecodeError as exc:
-        raise RecipeError(f"invalid TOML in {config_path}: {exc}") from exc
-    try:
-        return _RECIPE_ADAPTER.validate_python(value, context={"parent": config_path.parent})
-    except ValidationError as exc:
-        raise RecipeError(str(exc)) from exc
+    return _parse_recipe(
+        config_path.read_text(encoding="utf-8"),
+        parent=config_path.parent,
+        source=str(config_path),
+    )

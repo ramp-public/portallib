@@ -17,6 +17,12 @@ portallib refit --config recipe.toml
 portallib evaluate --config recipe.toml
 ```
 
+Pass `-` to read the same TOML recipe from standard input:
+
+```bash
+generate-recipe | portallib evaluate --config -
+```
+
 Every recipe declares `schema_version = 1` and a `kind` matching the command that executes it.
 `validate` checks the complete recipe structure without loading a dataset, model, or artifact.
 Unknown keys, duplicate tasks or source model IDs, invalid types, and command/recipe mismatches are
@@ -45,8 +51,9 @@ Exit codes are:
 
 Recipe files never contain authentication tokens. Hugging Face libraries use `HF_TOKEN` or the
 host's cached login. Model and dataset revisions can be pinned to immutable commits or tags.
-Local model and artifact locations begin with `./`, `../`, `~/`, or an absolute path; relative
-locations are resolved from the TOML file.
+Local model and artifact locations begin with `./`, `../`, `~/`, or an absolute path. Relative
+paths resolve from the TOML file's directory for `--config recipe.toml` and from the current working
+directory for `--config -`.
 
 ## Common fields
 
@@ -114,5 +121,5 @@ Evaluation requires `artifact` and the matching `[base]` table. It reports the r
 adapted result, and macro accuracy lift. `max_examples`, `max_prompt`, and `batch_size` control its
 evaluation workload.
 
-All relative filesystem paths are resolved relative to the TOML file rather than the caller's
-working directory.
+All relative filesystem paths use the same anchor: the TOML file's directory for file-backed
+recipes, or the current working directory for recipes read from standard input.

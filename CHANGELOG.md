@@ -8,7 +8,8 @@ All notable changes to `portallib` are documented here.
   TOML recipes.
 - Emit JSONL epoch events, structured errors, and final machine-readable results, with optional
   result-file persistence.
-- Keep credentials outside recipe files and resolve local paths relative to the recipe location.
+- Keep credentials outside recipe files, accept recipes from files or standard input, and resolve
+  local paths relative to the recipe location or current working directory respectively.
 - Share the same Hugging Face loading helpers across the CLI and editable Python examples.
 - Add pinned CLI recipes for source training, target refitting, and evaluation.
 

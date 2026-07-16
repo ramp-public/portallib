@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.metadata
+import io
 import json
 from pathlib import Path
 
@@ -47,6 +48,126 @@ def test_validate_command_does_not_run_recipe(monkeypatch, capsys) -> None:
         "kind": "train",
         "schema_version": 1,
     }
+
+
+def test_validate_reads_recipe_from_stdin_once(monkeypatch, capsys) -> None:
+    class CountingInput(io.StringIO):
+        reads = 0
+
+        def read(self, *args, **kwargs):
+            self.reads += 1
+            return super().read(*args, **kwargs)
+
+    stream = CountingInput(
+        """
+schema_version = 1
+kind = "evaluate"
+artifact = "example/artifact"
+
+[dataset]
+repo_id = "example/tasks"
+
+[base]
+model_id = "example/base"
+""".strip()
+    )
+    monkeypatch.setattr("sys.stdin", stream)
+
+    assert cli.main(["validate", "--config", "-"]) == 0
+    assert stream.reads == 1
+    assert json.loads(capsys.readouterr().out) == {
+        "event": "validated",
+        "kind": "evaluate",
+        "schema_version": 1,
+    }
+
+
+def test_stdin_recipe_dispatches_and_resolves_paths_from_cwd(monkeypatch, tmp_path: Path, capsys) -> None:
+    received: list[cli.EvaluateRecipe] = []
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(cli, "_run_evaluate", received.append)
+    monkeypatch.setattr(
+        "sys.stdin",
+        io.StringIO(
+            """
+schema_version = 1
+kind = "evaluate"
+artifact = "./artifacts/portal"
+result_path = "./results/evaluate.json"
+
+[dataset]
+path = "./data/tasks.json"
+
+[base]
+model_id = "./models/base"
+""".strip()
+        ),
+    )
+
+    assert cli.main(["evaluate", "--config", "-"]) == 0
+    assert len(received) == 1
+    recipe = received[0]
+    assert recipe.artifact == str(tmp_path / "artifacts" / "portal")
+    assert recipe.result_path == tmp_path / "results" / "evaluate.json"
+    assert recipe.dataset.source == str(tmp_path / "data" / "tasks.json")
+    assert recipe.base.model_id == str(tmp_path / "models" / "base")
+    assert capsys.readouterr().err == ""
+
+
+def test_stdin_train_recipe_resolves_output_from_cwd(monkeypatch, tmp_path: Path) -> None:
+    received: list[cli.TrainRecipe] = []
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(cli, "_run_train", received.append)
+    monkeypatch.setattr(
+        "sys.stdin",
+        io.StringIO(
+            """
+schema_version = 1
+kind = "train"
+output_dir = "./artifacts/source"
+
+[dataset]
+repo_id = "example/tasks"
+
+[[bases]]
+model_id = "example/base"
+""".strip()
+        ),
+    )
+
+    assert cli.main(["train", "--config", "-"]) == 0
+    assert received[0].output_dir == tmp_path / "artifacts" / "source"
+
+
+def test_invalid_stdin_toml_is_a_structured_config_error(monkeypatch, capsys) -> None:
+    monkeypatch.setattr("sys.stdin", io.StringIO("kind = ["))
+
+    assert cli.main(["validate", "--config", "-"]) == 2
+    error = json.loads(capsys.readouterr().err)
+    assert error["event"] == "error"
+    assert error["stage"] == "config"
+    assert "invalid TOML in <stdin>" in error["message"]
+
+
+def test_dot_slash_dash_remains_a_file_path(monkeypatch, tmp_path: Path, capsys) -> None:
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "-").write_text(
+        """
+schema_version = 1
+kind = "evaluate"
+artifact = "example/artifact"
+
+[dataset]
+repo_id = "example/tasks"
+
+[base]
+model_id = "example/base"
+""".strip(),
+        encoding="utf-8",
+    )
+
+    assert cli.main(["validate", "--config", "./-"]) == 0
+    assert json.loads(capsys.readouterr().out)["event"] == "validated"
 
 
 def test_command_rejects_a_different_recipe_kind(capsys) -> None:
