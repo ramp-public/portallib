@@ -16,8 +16,8 @@ class ChoiceExample:
     gold_idx: int
 
     def __post_init__(self) -> None:
-        if not self.task.strip() or not self.prompt:
-            raise ValueError("task and prompt must be non-empty strings")
+        if not self.task.strip():
+            raise ValueError("task must be a non-empty string")
         if len(self.choices) < 2 or any(not choice for choice in self.choices):
             raise ValueError("choices must contain at least two non-empty strings")
         if not 0 <= self.gold_idx < len(self.choices):

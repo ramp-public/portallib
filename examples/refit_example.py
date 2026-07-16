@@ -45,7 +45,7 @@ TARGET_BASE = BaseRecipe(
 # )
 
 DATASET = "RampPublic/portallib-tasks"
-DATASET_REVISION = "d35f1e8a813cfae662166164fc25965a31b01ae0"
+DATASET_REVISION = "ffc3c0e44f529bf64a5ae62ed5db090952db97ea"
 OUTPUT_DIR = Path("artifacts/portal-qwen3-8b-1000")
 REFIT_MAX_EXAMPLES = 1000
 EVAL_MAX_EXAMPLES = 1000

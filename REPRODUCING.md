@@ -24,7 +24,7 @@ when the default PyPI wheel is not appropriate.
 
 | Input | Revision |
 |---|---|
-| [`RampPublic/portallib-tasks`](https://huggingface.co/datasets/RampPublic/portallib-tasks) | `d35f1e8a813cfae662166164fc25965a31b01ae0` |
+| [`RampPublic/portallib-tasks`](https://huggingface.co/datasets/RampPublic/portallib-tasks) | `ffc3c0e44f529bf64a5ae62ed5db090952db97ea` |
 | `Qwen/Qwen3-1.7B` | `70d244cc86ccca08cf5af4e1e306ecf908b1ad5e` |
 | `Qwen/Qwen3-4B` | `1cfa9a7208912126459214e8b04321603b3df60c` |
 | `Qwen/Qwen3-8B` | `b968826d9c46dd6066d109eabc6255188de91218` |
@@ -40,7 +40,7 @@ python scripts/prepare_dataset.py --output portal_tasks.json
 ```
 
 The generated JSON contains 129,212 training rows and 19,548 validation rows. Its SHA-256 is
-`c5aec929f1800a3f1f4b3150aa1c9e464356fdb0cd11645c29df5b78efcdec00`, allowing a locally rebuilt
+`97ae9193a02b96daec13f7e21f56fbe7ed5102fd900e6c2093d9bbfc009f74cd`, allowing a locally rebuilt
 copy to be checked against the pinned Hub input. To train from the local file, set
 `DATASET = "portal_tasks.json"` and `DATASET_REVISION = None` in the example recipe.
 

@@ -22,6 +22,21 @@ CPU can be used for development and contract tests.
 
 The examples use one CUDA device and do not use multi-process or multi-node execution.
 
+Each `BaseRecipe` can override the automatic runtime defaults with Hugging Face loading controls:
+
+```python
+BaseRecipe(
+    "Qwen/Qwen3-8B",
+    "<exact-revision>",
+    dtype="float32",
+    device_map="cuda",
+    attn_implementation="sdpa",
+)
+```
+
+When `device_map` is set, the loader preserves Hugging Face's placement and does not apply a bulk
+`.to(device)`. Without these overrides, CUDA uses bf16 and one device while CPU uses fp32.
+
 ## Local Docker
 
 The included [`Dockerfile`](Dockerfile) builds a CUDA training image containing the exact checked-out

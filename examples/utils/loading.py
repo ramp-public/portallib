@@ -17,6 +17,9 @@ class BaseRecipe:
     model_id: str
     revision: str
     layer_path: str = "model.layers"
+    dtype: torch.dtype | str | None = None
+    device_map: str | dict[str, int | str | torch.device] | None = None
+    attn_implementation: str | None = None
 
 
 def load_dataset(source: str, *, revision: str | None) -> ChoiceDataset:
@@ -43,11 +46,17 @@ def load_base(recipe: BaseRecipe, *, device: torch.device, dtype: torch.dtype) -
     tokenizer = AutoTokenizer.from_pretrained(recipe.model_id, revision=recipe.revision)
     if tokenizer.pad_token_id is None:
         tokenizer.pad_token = tokenizer.eos_token
-    model = AutoModelForCausalLM.from_pretrained(
-        recipe.model_id,
-        revision=recipe.revision,
-        dtype=dtype,
-    ).to(device)
+    model_kwargs: dict[str, object] = {
+        "revision": recipe.revision,
+        "dtype": recipe.dtype or dtype,
+    }
+    if recipe.device_map is not None:
+        model_kwargs["device_map"] = recipe.device_map
+    if recipe.attn_implementation is not None:
+        model_kwargs["attn_implementation"] = recipe.attn_implementation
+    model = AutoModelForCausalLM.from_pretrained(recipe.model_id, **model_kwargs)
+    if recipe.device_map is None:
+        model = model.to(device)
     return PortalBase(
         model_id=recipe.model_id,
         model=model,

@@ -26,9 +26,13 @@ PORTAL_ARTIFACT_REVISION: str | None = "v0.1.0"
 BASE = BaseRecipe(
     "Qwen/Qwen3-8B",
     "b968826d9c46dd6066d109eabc6255188de91218",
+    # Optional host-specific controls:
+    # dtype="float32",
+    # device_map="cuda",
+    # attn_implementation="sdpa",
 )
 DATASET = "RampPublic/portallib-tasks"
-DATASET_REVISION = "d35f1e8a813cfae662166164fc25965a31b01ae0"
+DATASET_REVISION = "ffc3c0e44f529bf64a5ae62ed5db090952db97ea"
 MAX_EXAMPLES = 1000
 MAX_PROMPT = 768
 EVAL_BATCH_SIZE = 8

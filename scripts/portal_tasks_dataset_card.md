@@ -16,8 +16,9 @@ This dataset is the normalized task suite used by the training examples in
 19,548 validation examples. Each row has the following fields:
 
 - `task`: stable task name
-- `prompt`: language-model context
-- `choices`: candidate continuations, including intentional leading whitespace
+- `prompt`: language-model context with no trailing whitespace; it is empty only when a source
+  sentence places its blank first
+- `choices`: candidate continuations with exactly one leading space and no trailing whitespace
 - `gold_idx`: zero-based index of the correct continuation
 
 The validation metric in portallib is continuation log-probability normalized by character length
@@ -71,7 +72,7 @@ python scripts/prepare_dataset.py --output portal_tasks.json
 ```
 
 The canonical JSON serialization has SHA-256
-`c5aec929f1800a3f1f4b3150aa1c9e464356fdb0cd11645c29df5b78efcdec00`.
+`97ae9193a02b96daec13f7e21f56fbe7ed5102fd900e6c2093d9bbfc009f74cd`.
 
 TruthfulQA exposes one labeled split, so the first 75% is used for training and the final 25% for
 validation. Every other task uses its upstream `train` and `validation`

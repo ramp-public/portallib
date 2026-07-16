@@ -59,8 +59,70 @@ def test_hellaswag_matches_the_training_preprocessing() -> None:
         },
     )
     assert example is not None
-    assert example.prompt == "Cooking. : A person Mixes  batter"
+    assert example.prompt == "Cooking. : A person Mixes batter"
     assert example.choices == (" bakes it", " throws it away")
+
+
+def test_hellaswag_removes_markup_without_leaving_double_boundary_spaces() -> None:
+    example = prepare_dataset.format_row(
+        "hellaswag",
+        {
+            "activity_label": "Hunting",
+            "ctx_a": "A hunter",
+            "ctx_b": "waits",
+            "endings": ["[substeps] Buy a vest.", "  Walk home.  "],
+            "label": "0",
+        },
+    )
+
+    assert example is not None
+    assert example.choices == (" Buy a vest.", " Walk home.")
+
+
+def test_winogrande_moves_the_blank_boundary_to_each_choice() -> None:
+    example = prepare_dataset.format_row(
+        "winogrande",
+        {
+            "sentence": "The bowl was already empty because   _ ate first.",
+            "option1": "Ian",
+            "option2": "Dennis",
+            "answer": "1",
+        },
+    )
+
+    assert example is not None
+    assert example.prompt == "The bowl was already empty because"
+    assert example.choices == (" Ian ate first.", " Dennis ate first.")
+
+
+def test_winogrande_supports_a_blank_at_the_start_of_the_sentence() -> None:
+    example = prepare_dataset.format_row(
+        "winogrande",
+        {
+            "sentence": " _ likes chocolates.",
+            "option1": "Patricia",
+            "option2": "Carrie",
+            "answer": "1",
+        },
+    )
+
+    assert example is not None
+    assert example.prompt == ""
+    assert example.choices == (" Patricia likes chocolates.", " Carrie likes chocolates.")
+
+
+def test_dynamic_choices_have_one_leading_space_and_no_trailing_whitespace() -> None:
+    example = prepare_dataset.format_row(
+        "commonsense_qa",
+        {
+            "question": "What form is it?",
+            "choices": {"text": [" ice cream ", " cubes"], "label": ["A", "B"]},
+            "answerKey": "B",
+        },
+    )
+
+    assert example is not None
+    assert example.choices == (" ice cream", " cubes")
 
 
 def test_unlabeled_rows_are_ignored() -> None:

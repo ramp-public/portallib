@@ -73,7 +73,20 @@ DATASET_CARD = Path(__file__).with_name("portal_tasks_dataset_card.md")
 def _hellaswag_text(text: str) -> str:
     text = text.strip().replace(" [title]", ". ")
     text = re.sub(r"\[.*?\]", "", text)
-    return text.replace("  ", " ")
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def _continuation(text: Any) -> str:
+    """Return one canonical leading space followed by stripped answer text."""
+    return " " + str(text).strip()
+
+
+def _validate_boundary(example: ChoiceExample) -> None:
+    if example.prompt != example.prompt.rstrip():
+        raise ValueError(f"{example.task} prompt must not end with whitespace")
+    for choice in example.choices:
+        if not choice.startswith(" ") or choice.startswith("  ") or choice != choice.rstrip():
+            raise ValueError(f"{example.task} choices must have exactly one leading space and no trailing whitespace")
 
 
 def format_row(task: str, row: Mapping[str, Any]) -> ChoiceExample | None:
@@ -86,7 +99,7 @@ def format_row(task: str, row: Mapping[str, Any]) -> ChoiceExample | None:
                 return None
             value = {
                 "prompt": f"Question: {row['question']}\nAnswer:",
-                "choices": [" " + choice for choice in targets["choices"]],
+                "choices": [_continuation(choice) for choice in targets["choices"]],
                 "gold_idx": labels.index(1),
             }
         elif task == "rte":
@@ -103,10 +116,10 @@ def format_row(task: str, row: Mapping[str, Any]) -> ChoiceExample | None:
             }
         elif task == "copa":
             connector = {"cause": "because", "effect": "therefore"}[str(row["question"])]
-            choices = [str(row["choice1"]), str(row["choice2"])]
+            choices = [str(row["choice1"]).strip(), str(row["choice2"]).strip()]
             value = {
                 "prompt": str(row["premise"]).strip()[:-1] + f" {connector}",
-                "choices": [" " + choice[0].lower() + choice[1:] for choice in choices],
+                "choices": [_continuation(choice[0].lower() + choice[1:]) for choice in choices],
                 "gold_idx": int(row["label"]),
             }
         elif task == "wic":
@@ -140,7 +153,7 @@ def format_row(task: str, row: Mapping[str, Any]) -> ChoiceExample | None:
                 return None
             value = {
                 "prompt": f"Question: {row['question']}\nAnswer:",
-                "choices": [" " + text for text in texts],
+                "choices": [_continuation(text) for text in texts],
                 "gold_idx": labels.index(row["answerKey"]),
             }
         elif task == "hellaswag":
@@ -149,7 +162,7 @@ def format_row(task: str, row: Mapping[str, Any]) -> ChoiceExample | None:
             context = str(row["ctx_a"]) + " " + str(row["ctx_b"]).capitalize()
             value = {
                 "prompt": _hellaswag_text(str(row["activity_label"]) + ": " + context),
-                "choices": [" " + _hellaswag_text(ending) for ending in row["endings"]],
+                "choices": [_continuation(_hellaswag_text(ending)) for ending in row["endings"]],
                 "gold_idx": int(row["label"]),
             }
         elif task == "openbookqa":
@@ -159,7 +172,7 @@ def format_row(task: str, row: Mapping[str, Any]) -> ChoiceExample | None:
                 return None
             value = {
                 "prompt": f"Question: {row['question_stem']}\nAnswer:",
-                "choices": [" " + text for text in texts],
+                "choices": [_continuation(text) for text in texts],
                 "gold_idx": labels.index(row["answerKey"]),
             }
         elif task == "winogrande":
@@ -169,8 +182,8 @@ def format_row(task: str, row: Mapping[str, Any]) -> ChoiceExample | None:
             prefix = str(row["sentence"])[:blank]
             suffix = str(row["sentence"])[blank + 1 :]
             value = {
-                "prompt": prefix,
-                "choices": [str(row["option1"]) + suffix, str(row["option2"]) + suffix],
+                "prompt": prefix.rstrip(),
+                "choices": [_continuation(str(row["option1"]) + suffix), _continuation(str(row["option2"]) + suffix)],
                 "gold_idx": int(row["answer"]) - 1,
             }
         elif task == "commonsense_qa":
@@ -180,7 +193,7 @@ def format_row(task: str, row: Mapping[str, Any]) -> ChoiceExample | None:
                 return None
             value = {
                 "prompt": f"Question: {row['question']}\nAnswer:",
-                "choices": [" " + text for text in texts],
+                "choices": [_continuation(text) for text in texts],
                 "gold_idx": labels.index(row["answerKey"]),
             }
         elif task == "sciq":
@@ -194,7 +207,7 @@ def format_row(task: str, row: Mapping[str, Any]) -> ChoiceExample | None:
                 return None
             value = {
                 "prompt": f"Question: {row['question']}\nAnswer:",
-                "choices": [" " + choice for choice in choices],
+                "choices": [_continuation(choice) for choice in choices],
                 "gold_idx": 0,
             }
         else:
@@ -203,7 +216,9 @@ def format_row(task: str, row: Mapping[str, Any]) -> ChoiceExample | None:
         return None
     if int(value["gold_idx"]) < 0:
         return None
-    return ChoiceExample.from_dict({"task": task, **value})
+    example = ChoiceExample.from_dict({"task": task, **value})
+    _validate_boundary(example)
+    return example
 
 
 def _normalize_rows(task: str, rows: Iterable[Mapping[str, Any]]) -> list[ChoiceExample]:
