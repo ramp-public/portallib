@@ -66,6 +66,15 @@ def runtime_device(device: str = "auto", dtype: str = "auto") -> tuple[torch.dev
     return selected_device, selected_dtype
 
 
+def _initialize_cuda_context(device: torch.device) -> None:
+    """Eagerly establish the selected CUDA context before the first model matmul."""
+    if device.type != "cuda":
+        return
+    with torch.cuda.device(device):
+        torch.cuda.init()
+        torch.zeros(1, device=device)
+
+
 def load_base(recipe: BaseModelSpec, *, device: torch.device, dtype: torch.dtype) -> PortalBase:
     """Load one tokenizer/base pair and describe it as a :class:`PortalBase`."""
     try:
@@ -87,6 +96,7 @@ def load_base(recipe: BaseModelSpec, *, device: torch.device, dtype: torch.dtype
     model = AutoModelForCausalLM.from_pretrained(recipe.model_id, **model_kwargs)
     if recipe.device_map is None:
         model = model.to(device)
+    _initialize_cuda_context(next(model.parameters()).device)
     return PortalBase(
         model_id=recipe.model_id,
         model=model,

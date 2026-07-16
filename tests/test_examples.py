@@ -113,3 +113,27 @@ def test_base_recipe_forwards_host_loading_controls_without_bulk_device_move(mon
     )
     assert model.to_calls == 0
     assert base.module_paths == {"q": "self_attn.q_proj"}
+
+
+def test_cuda_context_initialization_is_guarded_and_device_scoped(monkeypatch) -> None:
+    from portallib import runtime
+
+    calls: list[object] = []
+
+    class DeviceContext:
+        def __enter__(self):
+            calls.append("enter")
+
+        def __exit__(self, *_args):
+            calls.append("exit")
+
+    monkeypatch.setattr(runtime.torch.cuda, "device", lambda device: calls.append(device) or DeviceContext())
+    monkeypatch.setattr(runtime.torch.cuda, "init", lambda: calls.append("init"))
+    monkeypatch.setattr(runtime.torch, "zeros", lambda size, *, device: calls.append((size, device)))
+
+    runtime._initialize_cuda_context(torch.device("cpu"))
+    assert calls == []
+
+    cuda = torch.device("cuda:2")
+    runtime._initialize_cuda_context(cuda)
+    assert calls == [cuda, "enter", "init", (1, cuda), "exit"]
