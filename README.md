@@ -160,6 +160,14 @@ portallib validate --config examples/configs/train.toml
 portallib train --config examples/configs/train.toml
 ```
 
+Recipes can also be piped without creating a temporary file:
+
+```bash
+generate-recipe | portallib evaluate --config -
+```
+
+Relative paths in piped recipes resolve from the current working directory.
+
 The CLI rejects unknown keys and command/recipe mismatches. It emits JSONL progress and final
 results, uses exit code `2` for recipe errors and `1` for runtime failures, and reads Hugging Face
 authentication from `HF_TOKEN` or the host's cached login. Credentials do not belong in recipe

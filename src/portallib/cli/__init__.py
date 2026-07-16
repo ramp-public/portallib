@@ -12,6 +12,7 @@ from .recipes import (
     RecipeError,
     RefitRecipe,
     TrainRecipe,
+    _parse_recipe,
     load_recipe,
 )
 from .workflows import _emit, _run_evaluate, _run_refit, _run_train, _write_result
@@ -23,7 +24,11 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", required=True)
     for command in ("train", "refit", "evaluate", "validate"):
         subparser = subparsers.add_parser(command)
-        subparser.add_argument("--config", required=True, type=Path, help="Path to a versioned TOML recipe.")
+        subparser.add_argument(
+            "--config",
+            required=True,
+            help="Path to a versioned TOML recipe, or - to read it from stdin.",
+        )
     return parser
 
 
@@ -31,7 +36,11 @@ def main(argv: list[str] | None = None) -> int:
     """Run the CLI and return a process exit code."""
     args = build_parser().parse_args(argv)
     try:
-        recipe = load_recipe(args.config)
+        recipe = (
+            _parse_recipe(sys.stdin.read(), parent=Path.cwd(), source="<stdin>")
+            if args.config == "-"
+            else load_recipe(args.config)
+        )
     except (OSError, RecipeError) as exc:
         _emit({"event": "error", "stage": "config", "message": str(exc)}, stream=sys.stderr)
         return 2
