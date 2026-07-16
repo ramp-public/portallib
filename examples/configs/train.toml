@@ -1,0 +1,41 @@
+schema_version = 1
+kind = "train"
+output_dir = "../../artifacts/portal-qwen-sources"
+result_path = "../../artifacts/portal-qwen-sources/result.json"
+
+[dataset]
+repo_id = "RampPublic/portallib-tasks"
+revision = "ffc3c0e44f529bf64a5ae62ed5db090952db97ea"
+
+[runtime]
+device = "auto"
+dtype = "auto"
+
+[training]
+modules = ["q", "v"]
+rank = 8
+alpha = 16
+d_z = 256
+d_layer = 32
+hidden = 512
+d_core = 1024
+source_max_examples = 2000
+source_resample_each_epoch = false
+source_steps_per_epoch = 500
+eval_max_examples = 1000
+eval_batch_size = 8
+epochs = 12
+batch_size = 4
+learning_rate = 1e-3
+latent_learning_rate = 2e-3
+lr_scheduler = "linear"
+warmup_ratio = 0.1
+seed = 0
+
+[[bases]]
+model_id = "Qwen/Qwen3-1.7B"
+revision = "70d244cc86ccca08cf5af4e1e306ecf908b1ad5e"
+
+[[bases]]
+model_id = "Qwen/Qwen3-4B"
+revision = "1cfa9a7208912126459214e8b04321603b3df60c"

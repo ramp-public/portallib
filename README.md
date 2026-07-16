@@ -76,6 +76,30 @@ portal.export_peft("rte", "./portal-rte-qwen3-4b")
 The exported directory is an ordinary PEFT adapter and reloads with
 `PeftModel.from_pretrained`.
 
+## Configuration-driven CLI
+
+From a repository checkout, install the training dependencies, validate a strict TOML recipe
+without loading models, and then run it through the matching command:
+
+```bash
+pip install 'portallib[training]==0.2.0'
+portallib validate --config examples/configs/train.toml
+portallib train --config examples/configs/train.toml
+```
+
+Equivalent pinned recipes are provided for all three phases:
+
+```bash
+portallib refit --config examples/configs/refit.toml
+portallib evaluate --config examples/configs/evaluate.toml
+```
+
+The CLI rejects unknown keys and command/recipe mismatches. It emits JSONL progress and final
+results, uses exit code `2` for recipe errors and `1` for runtime failures, and reads Hugging Face
+authentication from `HF_TOKEN` or the host's cached login. Credentials do not belong in recipe
+files. See [`CLI.md`](https://github.com/ramp-public/portallib/blob/main/CLI.md) for the schema and
+automation contract.
+
 ## Published artifacts
 
 | Artifact | Role |
@@ -133,7 +157,7 @@ run them, then install the released training package:
 ```bash
 git clone https://github.com/ramp-public/portallib
 cd portallib
-pip install 'portallib[training]==0.1.2'
+pip install 'portallib[training]==0.2.0'
 python examples/train_example.py
 ```
 
@@ -155,7 +179,7 @@ Other causal language-model families are expected to work when they expose unifo
 projections across decoder layers. Pass their exact layer and projection paths through `PortalBase`;
 PorTAL validates every configured path and dimension before training. Automatic architecture
 adapters and models with non-uniform per-layer projection dimensions are not yet part of the
-supported v0.1 compatibility surface. Contributions that add exact, tested architecture mappings
+supported compatibility surface. Contributions that add exact, tested architecture mappings
 are welcome.
 
 For another model family, set its exact `BaseRecipe.layer_path`; paths are explicit rather than

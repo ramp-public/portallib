@@ -14,11 +14,19 @@ model IDs, revisions, data budgets, and optimization settings are visible and ed
 ```bash
 git clone https://github.com/ramp-public/portallib
 cd portallib
-python -m pip install 'portallib[training]==0.1.2'
+python -m pip install 'portallib[training]==0.2.0'
 ```
 
 Install the CUDA-compatible PyTorch build required by your GPU platform before the command above
 when the default PyPI wheel is not appropriate.
+
+The strict TOML equivalents of the three Python recipes are checked in under `examples/configs/`.
+They can be validated without loading models and run through the installed CLI:
+
+```bash
+portallib validate --config examples/configs/train.toml
+portallib train --config examples/configs/train.toml
+```
 
 ## Pinned inputs
 

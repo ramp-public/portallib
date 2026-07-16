@@ -1,4 +1,4 @@
-"""Run one editable PorTAL example on a persistent Modal GPU job.
+"""Run one configuration-driven PorTAL workflow on a persistent Modal GPU job.
 
 Example:
     modal run examples/launchers/modal_launcher.py
@@ -10,8 +10,8 @@ import subprocess
 
 import modal
 
-# Select train_example.py, refit_example.py, or evaluate_example.py.
-EXAMPLE = "examples/train_example.py"
+# Select train, refit, or evaluate and its matching TOML recipe.
+COMMAND = ["portallib", "train", "--config", "examples/configs/train.toml"]
 
 app = modal.App("portallib-training")
 image = modal.Image.from_dockerfile("Dockerfile", context_dir=".").entrypoint([])
@@ -26,14 +26,13 @@ hf_cache = modal.Volume.from_name("portallib-hf-cache", create_if_missing=True)
     secrets=[modal.Secret.from_name("HF_TOKEN")],
     volumes={"/workspace/portallib/artifacts": artifacts, "/cache/huggingface": hf_cache},
 )
-def train() -> None:
-    command = ["python", EXAMPLE]
+def run() -> None:
     try:
-        subprocess.run(command, cwd="/workspace/portallib", check=True)
+        subprocess.run(COMMAND, cwd="/workspace/portallib", check=True)
     finally:
         artifacts.commit()
 
 
 @app.local_entrypoint()
 def main() -> None:
-    train.remote()
+    run.remote()
