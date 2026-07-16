@@ -2,15 +2,21 @@
 
 PorTAL training and evaluation are single-process PyTorch workloads. The library is installed from
 PyPI; the repository supplies strict TOML recipes, editable Python equivalents, and compute
-launchers. Every compute platform can invoke the same installed command:
+launchers. A compute platform can run the Python workflows directly:
+
+```bash
+python examples/train_example.py
+```
+
+or invoke the equivalent configuration-driven CLI recipe:
 
 ```bash
 portallib train --config examples/configs/train.toml
 ```
 
-Use `refit` with `examples/configs/refit.toml` or `evaluate` with
-`examples/configs/evaluate.toml` for the other phases. The Python examples remain available when a
-workflow needs programmatic configuration beyond the CLI schema.
+Use `examples/refit_example.py` or `examples/evaluate_example.py` for the other Python phases, or
+the matching `refit` and `evaluate` TOML recipes. Both interfaces call the same package training,
+refitting, and evaluation implementation.
 
 The compute platform provisions the GPU, preserves the Hugging Face cache and `artifacts/`
 directory, and supplies any required Hugging Face token. The release source and both 1,000-example

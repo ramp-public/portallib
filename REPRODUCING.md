@@ -20,12 +20,20 @@ python -m pip install 'portallib[training]==0.2.0'
 Install the CUDA-compatible PyTorch build required by your GPU platform before the command above
 when the default PyPI wheel is not appropriate.
 
-The strict TOML equivalents of the three Python recipes are checked in under `examples/configs/`.
-They can be validated without loading models and run through the installed CLI:
+The three phases can be run as editable Python workflows or as equivalent strict TOML recipes:
+
+| Phase | Python | CLI |
+|---|---|---|
+| Source training | `python examples/train_example.py` | `portallib train --config examples/configs/train.toml` |
+| Target refitting | `python examples/refit_example.py` | `portallib refit --config examples/configs/refit.toml` |
+| Evaluation | `python examples/evaluate_example.py` | `portallib evaluate --config examples/configs/evaluate.toml` |
+
+The Python examples configure and call the public package APIs directly. The TOML recipes under
+`examples/configs/` provide the same workflows through the installed CLI and can be validated
+without loading models:
 
 ```bash
 portallib validate --config examples/configs/train.toml
-portallib train --config examples/configs/train.toml
 ```
 
 ## Pinned inputs

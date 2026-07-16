@@ -4,6 +4,10 @@ The `portallib` command runs source training, target-base refitting, and evaluat
 versioned TOML recipes. It is intended for local processes, containers, schedulers, and sandboxed
 workers that need a stable subprocess boundary around the Python APIs.
 
+For programmatic use, the corresponding Python entry points are `PortalCoreTrainer.train()`,
+`PortalAdapterRefitter.refit()`, and `PortalEvaluator.evaluate()`. Complete Python workflows are in
+`examples/train_example.py`, `examples/refit_example.py`, and `examples/evaluate_example.py`.
+
 ## Commands
 
 ```bash

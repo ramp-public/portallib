@@ -76,30 +76,6 @@ portal.export_peft("rte", "./portal-rte-qwen3-4b")
 The exported directory is an ordinary PEFT adapter and reloads with
 `PeftModel.from_pretrained`.
 
-## Configuration-driven CLI
-
-From a repository checkout, install the training dependencies, validate a strict TOML recipe
-without loading models, and then run it through the matching command:
-
-```bash
-pip install 'portallib[training]==0.2.0'
-portallib validate --config examples/configs/train.toml
-portallib train --config examples/configs/train.toml
-```
-
-Equivalent pinned recipes are provided for all three phases:
-
-```bash
-portallib refit --config examples/configs/refit.toml
-portallib evaluate --config examples/configs/evaluate.toml
-```
-
-The CLI rejects unknown keys and command/recipe mismatches. It emits JSONL progress and final
-results, uses exit code `2` for recipe errors and `1` for runtime failures, and reads Hugging Face
-authentication from `HF_TOKEN` or the host's cached login. Credentials do not belong in recipe
-files. See [`CLI.md`](https://github.com/ramp-public/portallib/blob/main/CLI.md) for the schema and
-automation contract.
-
 ## Published artifacts
 
 | Artifact | Role |
@@ -112,7 +88,7 @@ automation contract.
 The recipes load the `v0.1.0` artifact revisions. Each repository contains one base-specific native
 PorTAL artifact; task-specific standard PEFT adapters can be generated from it as needed.
 
-## Examples
+## Python workflows
 
 [`examples/train_example.py`](https://github.com/ramp-public/portallib/blob/main/examples/train_example.py) is thin orchestration around the public
 canonical trainer APIs. It freezes each base model, jointly learns shared task latents and a canonical
@@ -160,6 +136,35 @@ cd portallib
 pip install 'portallib[training]==0.2.0'
 python examples/train_example.py
 ```
+
+The trainer, refitter, and evaluator are regular Python APIs. The examples define their recipes as
+editable Python objects and invoke `PortalCoreTrainer`, `PortalAdapterRefitter`, and
+`PortalEvaluator` directly.
+
+## Configuration-driven CLI
+
+The CLI runs the same library workflows from strict TOML recipes, which is useful for containers,
+scheduled jobs, and reproducible subprocess execution:
+
+| Workflow | Python | CLI |
+|---|---|---|
+| Source training | `python examples/train_example.py` | `portallib train --config examples/configs/train.toml` |
+| Target refitting | `python examples/refit_example.py` | `portallib refit --config examples/configs/refit.toml` |
+| Evaluation | `python examples/evaluate_example.py` | `portallib evaluate --config examples/configs/evaluate.toml` |
+
+Install the training dependencies and optionally validate a recipe without loading models:
+
+```bash
+pip install 'portallib[training]==0.2.0'
+portallib validate --config examples/configs/train.toml
+portallib train --config examples/configs/train.toml
+```
+
+The CLI rejects unknown keys and command/recipe mismatches. It emits JSONL progress and final
+results, uses exit code `2` for recipe errors and `1` for runtime failures, and reads Hugging Face
+authentication from `HF_TOKEN` or the host's cached login. Credentials do not belong in recipe
+files. See [`CLI.md`](https://github.com/ramp-public/portallib/blob/main/CLI.md) for the schema and
+automation contract.
 
 [`REPRODUCING.md`](https://github.com/ramp-public/portallib/blob/main/REPRODUCING.md) records pinned dataset and model revisions, the complete training
 configuration, checkpoint selection, and source/Qwen/Gemma recipes.
