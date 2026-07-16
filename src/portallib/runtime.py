@@ -8,8 +8,7 @@ from typing import Any
 
 import torch
 
-from ._naming import model_slug
-from ._paths import validate_dotted_path
+from ._paths import model_slug, validate_dotted_path
 from .data import ChoiceDataset
 from .evaluation import PortalBase
 

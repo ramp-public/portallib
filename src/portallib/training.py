@@ -12,7 +12,7 @@ from typing import Any, Callable, Literal
 import torch
 from torch import nn
 
-from ._naming import model_slug
+from ._paths import model_slug
 from .config import _ARCHITECTURE_FIELDS, PortalConfig
 from .data import ChoiceDataset, ChoiceExample
 from .decoder import PortalAlignment, PortalCore, PortalDecoder
