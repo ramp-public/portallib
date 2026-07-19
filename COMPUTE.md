@@ -46,6 +46,11 @@ BaseModelSpec(
 When `device_map` is set, the loader preserves Hugging Face's placement and does not apply a bulk
 `.to(device)`. Without these overrides, CUDA uses bf16 and one device while CPU uses fp32.
 
+For frozen-base PorTAL evaluation and refitting, hybrid maps may offload decoder layers: generated
+factors follow each target projection's live output device and dtype. Keep the model's primary
+input placement on a real device. Whole-model disk offload that leaves the first parameter on
+`meta` is not supported.
+
 ## Local Docker
 
 The included [`Dockerfile`](Dockerfile) builds a CUDA training image containing the exact checked-out

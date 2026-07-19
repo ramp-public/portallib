@@ -2,6 +2,11 @@
 
 All notable changes to `portallib` are documented here.
 
+## Unreleased
+
+- Place generated LoRA factors from each target projection's live output device and dtype so
+  adapters remain active and differentiable when decoder layers are disk-offloaded.
+
 ## 0.2.0 - 2026-07-16
 
 - Add the `portallib train`, `refit`, `evaluate`, and `validate` commands with strict, versioned

@@ -57,6 +57,24 @@ class ToyAttention(nn.Module):
         return self.q_proj(value) + self.v_proj(value)
 
 
+class MetaPlaceholderLinear(nn.Linear):
+    """Linear-shaped module whose public weight mimics an offloaded placeholder."""
+
+    def __init__(self, width: int, *, dtype: torch.dtype = torch.float64):
+        super().__init__(width, width, bias=False, device="meta", dtype=dtype)
+        self.register_buffer("resident_weight", torch.eye(width, dtype=dtype))
+
+    def forward(self, value: torch.Tensor) -> torch.Tensor:
+        return torch.nn.functional.linear(value, self.resident_weight)
+
+
+class MetaOutputLinear(nn.Linear):
+    """Linear-shaped module that simulates an invalid meta-only execution."""
+
+    def forward(self, value: torch.Tensor) -> torch.Tensor:
+        return torch.empty((*value.shape[:-1], self.out_features), device="meta", dtype=value.dtype)
+
+
 class ToyLayer(nn.Module):
     def __init__(self, width: int):
         super().__init__()
@@ -248,6 +266,30 @@ def make_dataset() -> ChoiceDataset:
     return ChoiceDataset(train, validation)
 
 
+def make_factor_parameters(
+    config: PortalConfig,
+    *,
+    active_key: tuple[int, str],
+    dtype: torch.dtype = torch.float32,
+) -> dict[tuple[int, str], tuple[nn.Parameter, nn.Parameter]]:
+    factors: dict[tuple[int, str], tuple[nn.Parameter, nn.Parameter]] = {}
+    for layer_index, module_name, _exact_path in config.targets():
+        key = (layer_index, module_name)
+        active = key == active_key
+        a = torch.full(
+            (config.rank, config.in_dims[module_name]),
+            0.25 if active else 0.0,
+            dtype=dtype,
+        )
+        b = torch.full(
+            (config.out_dims[module_name], config.rank),
+            -0.2 if active else 0.0,
+            dtype=dtype,
+        )
+        factors[key] = (nn.Parameter(a), nn.Parameter(b))
+    return factors
+
+
 def test_canonical_initialization_and_factor_shapes() -> None:
     config = make_config()
     decoder = PortalDecoder(config)
@@ -411,6 +453,107 @@ def test_config_enumerates_each_exact_target_once() -> None:
     ]
 
 
+def test_injector_uses_live_output_placement_for_meta_weight() -> None:
+    base = ToyBaseModel(width=4, n_layers=1)
+    projection = MetaPlaceholderLinear(4)
+    base.model.layers[0].self_attn.q_proj = projection
+    for parameter in base.parameters():
+        parameter.requires_grad_(False)
+    config = PortalConfig.from_model(
+        base,
+        tasks=["alpha"],
+        base_model_name_or_path="toy/meta",
+        modules=("q",),
+        rank=2,
+        alpha=4,
+        d_z=3,
+        d_layer=2,
+        hidden=5,
+        d_core=3,
+    )
+    factors = make_factor_parameters(config, active_key=(0, "q"))
+    value = torch.randn(2, 3, 4, dtype=torch.float64, requires_grad=True)
+    raw = projection(value).detach()
+    a, b = factors[(0, "q")]
+    expected = raw + torch.nn.functional.linear(
+        torch.nn.functional.linear(value.detach(), a.detach().to(dtype=value.dtype)),
+        b.detach().to(dtype=value.dtype),
+    ) * config.scaling
+    injector = PortalInjector(base, config)
+
+    try:
+        with injector.activate(factors):
+            adapted = projection(value)
+            adapted.square().mean().backward()
+        after = projection(value.detach())
+    finally:
+        injector.close()
+
+    assert projection.weight.device.type == "meta"
+    assert adapted.dtype == torch.float64
+    torch.testing.assert_close(adapted.detach(), expected)
+    assert not torch.equal(adapted.detach(), raw)
+    torch.testing.assert_close(after, raw)
+    assert value.grad is not None and torch.isfinite(value.grad).all()
+    assert a.grad is not None and torch.isfinite(a.grad).all() and torch.count_nonzero(a.grad) > 0
+    assert b.grad is not None and torch.isfinite(b.grad).all() and torch.count_nonzero(b.grad) > 0
+    assert a.grad.dtype == torch.float32 and b.grad.dtype == torch.float32
+
+
+def test_injector_rejects_missing_misshaped_and_meta_factors() -> None:
+    base = ToyBaseModel(width=4, n_layers=1)
+    config = PortalConfig.from_model(
+        base,
+        tasks=["alpha"],
+        base_model_name_or_path="toy/base",
+        modules=("q",),
+        rank=2,
+    )
+    injector = PortalInjector(base, config)
+
+    try:
+        with pytest.raises(ValueError, match="missing configured target"):
+            with injector.activate({}):
+                pass
+        with pytest.raises(ValueError, match="generated shape mismatch"):
+            with injector.activate({(0, "q"): (torch.zeros(1, 4), torch.zeros(4, 2))}):
+                pass
+        with pytest.raises(ValueError, match="cannot be on the meta device"):
+            with injector.activate(
+                {
+                    (0, "q"): (
+                        torch.empty(2, 4, device="meta"),
+                        torch.empty(4, 2, device="meta"),
+                    )
+                }
+            ):
+                pass
+    finally:
+        injector.close()
+
+
+def test_injector_rejects_meta_runtime_output() -> None:
+    base = ToyBaseModel(width=4, n_layers=1)
+    projection = MetaOutputLinear(4, 4, bias=False)
+    base.model.layers[0].self_attn.q_proj = projection
+    config = PortalConfig.from_model(
+        base,
+        tasks=["alpha"],
+        base_model_name_or_path="toy/meta-output",
+        modules=("q",),
+        rank=2,
+    )
+    factors = make_factor_parameters(config, active_key=(0, "q"))
+    injector = PortalInjector(base, config)
+
+    try:
+        with pytest.raises(RuntimeError, match="projection output is on the meta device"):
+            with injector.activate(factors):
+                projection(torch.ones(1, 4))
+    finally:
+        injector.close()
+
+
 def test_injector_is_differentiable_and_checkpoint_safe() -> None:
     base = ToyCausalLM()
     config = make_config(base, tasks=["alpha"])
@@ -434,7 +577,7 @@ def test_injector_is_differentiable_and_checkpoint_safe() -> None:
     assert any(parameter.grad is not None for parameter in decoder.parameters())
 
 
-def test_injector_prepares_factors_once_per_activation(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_injector_caches_live_factor_placement_during_evaluation(monkeypatch: pytest.MonkeyPatch) -> None:
     base = ToyCausalLM()
     config = make_config(base, tasks=["alpha"])
     factors = PortalDecoder(config)(torch.randn(config.d_z))
@@ -451,12 +594,110 @@ def test_injector_prepares_factors_once_per_activation(monkeypatch: pytest.Monke
     monkeypatch.setattr(torch.Tensor, "to", counting_to)
     injector = PortalInjector(base, config)
     value = torch.randn(1, 2, base.model.layers[0].self_attn.q_proj.in_features)
-    with injector.activate(factors):
-        base.model.layers[0](value)
-        base.model.layers[0](value)
+    with torch.no_grad():
+        with injector.activate(factors):
+            base.model.layers[0](value)
+            base.model.layers[0](value)
     injector.close()
 
-    assert conversion_calls == 2 * len(factors)
+    assert conversion_calls == 2 * len(config.modules)
+
+
+def test_injector_matches_reference_with_disk_offloaded_layer(tmp_path: Path) -> None:
+    from accelerate import dispatch_model
+
+    torch.manual_seed(17)
+    plain = ToyBaseModel(width=4, n_layers=2)
+    offloaded = ToyBaseModel(width=4, n_layers=2)
+    offloaded.load_state_dict(copy.deepcopy(plain.state_dict()))
+    for model in (plain, offloaded):
+        for parameter in model.parameters():
+            parameter.requires_grad_(False)
+    offloaded = dispatch_model(
+        offloaded,
+        device_map={"model.layers.0": "cpu", "model.layers.1": "disk"},
+        offload_dir=tmp_path / "offload",
+    )
+    config = make_config(offloaded, tasks=["alpha"])
+    plain_factors = make_factor_parameters(config, active_key=(1, "q"))
+    offloaded_factors = make_factor_parameters(config, active_key=(1, "q"))
+    plain_injector = PortalInjector(plain, config)
+    offloaded_injector = PortalInjector(offloaded, config)
+    target = offloaded.model.layers[1].self_attn.q_proj
+    value = torch.randn(2, 3, 4)
+
+    try:
+        assert target.weight.device.type == "meta"
+        with torch.no_grad():
+            raw = offloaded(value)
+            with offloaded_injector.activate(offloaded_factors):
+                evaluated = offloaded(value)
+        assert target.weight.device.type == "meta"
+        assert (evaluated - raw).abs().max() > 1e-6
+
+        plain_value = value.detach().clone().requires_grad_()
+        offloaded_value = value.detach().clone().requires_grad_()
+        with plain_injector.activate(plain_factors):
+            plain_output = plain(plain_value)
+            plain_output.square().mean().backward()
+        with offloaded_injector.activate(offloaded_factors):
+            offloaded_output = offloaded(offloaded_value)
+            offloaded_output.square().mean().backward()
+    finally:
+        plain_injector.close()
+        offloaded_injector.close()
+
+    assert target.weight.device.type == "meta"
+    torch.testing.assert_close(offloaded_output, plain_output)
+    torch.testing.assert_close(offloaded_value.grad, plain_value.grad)
+    for offloaded_factor, plain_factor in zip(offloaded_factors[(1, "q")], plain_factors[(1, "q")]):
+        assert offloaded_factor.grad is not None and torch.isfinite(offloaded_factor.grad).all()
+        assert torch.count_nonzero(offloaded_factor.grad) > 0
+        torch.testing.assert_close(offloaded_factor.grad, plain_factor.grad)
+    assert all(parameter.grad is None for parameter in plain.parameters())
+    assert all(parameter.grad is None for parameter in offloaded.parameters())
+
+
+def test_disk_offloaded_injector_is_checkpoint_safe(tmp_path: Path) -> None:
+    from accelerate import dispatch_model
+
+    model = ToyCausalLM()
+    model = dispatch_model(
+        model,
+        device_map={
+            "embed": "cpu",
+            "model.layers.0": "cpu",
+            "model.layers.1": "disk",
+            "lm_head": "cpu",
+        },
+        offload_dir=tmp_path / "checkpoint-offload",
+    )
+    base = PortalBase("toy/base", model, ToyTokenizer())
+    base.freeze(gradient_checkpointing=True)
+    model.train()
+    config = make_config(model, tasks=["alpha"])
+    factors = make_factor_parameters(config, active_key=(1, "q"))
+    injector = PortalInjector(model, config)
+    ids = torch.tensor([[1, 4, 6, 2]])
+    labels = torch.tensor([[-100, -100, -100, 2]])
+    target = model.model.layers[1].self_attn.q_proj
+
+    try:
+        assert target.weight.device.type == "meta"
+        with injector.activate(factors):
+            loss = model(input_ids=ids, labels=labels).loss
+            loss.backward()
+    finally:
+        injector.close()
+
+    assert model.checkpointing_kwargs == {"use_reentrant": False}
+    assert model.config.use_cache is False
+    assert target.weight.device.type == "meta"
+    assert torch.isfinite(loss)
+    for factor in factors[(1, "q")]:
+        assert factor.grad is not None and torch.isfinite(factor.grad).all()
+        assert torch.count_nonzero(factor.grad) > 0
+    assert all(parameter.grad is None for parameter in model.parameters())
 
 
 def test_evaluator_epoch_zero_matches_unadapted_base() -> None:
