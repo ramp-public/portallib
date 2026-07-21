@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from contextvars import ContextVar
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Iterator
 
 import torch
@@ -78,15 +78,26 @@ class EvaluationResult:
         }
 
 
+@dataclass
+class _ActiveFactors:
+    """Shape-validated factors plus placements cached for one no-grad activation."""
+
+    factors: GeneratedLora
+    eval_cache: dict[
+        tuple[tuple[int, str], torch.device, torch.dtype],
+        tuple[torch.Tensor, torch.Tensor],
+    ] = field(default_factory=dict)
+
+
 class PortalInjector:
     """Persistent exact-path hooks with context-local generated factors."""
 
     def __init__(self, base_model: nn.Module, config: PortalConfig) -> None:
         self.base_model = base_model
         self.config = config
-        self._active: ContextVar[GeneratedLora | None] = ContextVar(f"portallib_lora_{id(self)}", default=None)
-        self._checkpoint_active: GeneratedLora | None = None
-        self._factor_specs: dict[tuple[int, str], tuple[int, int, torch.device, torch.dtype]] = {}
+        self._active: ContextVar[_ActiveFactors | None] = ContextVar(f"portallib_lora_{id(self)}", default=None)
+        self._checkpoint_active: _ActiveFactors | None = None
+        self._factor_specs: dict[tuple[int, str], tuple[int, int]] = {}
         self._handles: list[torch.utils.hooks.RemovableHandle] = []
         for layer_index, short_name, exact_path in config.targets():
             try:
@@ -100,7 +111,7 @@ class PortalInjector:
             key = (layer_index, short_name)
             in_features = module.in_features
             out_features = module.out_features
-            self._factor_specs[key] = (in_features, out_features, module.weight.device, module.weight.dtype)
+            self._factor_specs[key] = (in_features, out_features)
 
             def hook(
                 _module: nn.Module,
@@ -109,21 +120,43 @@ class PortalInjector:
                 *,
                 factor_key: tuple[int, str] = key,
             ) -> torch.Tensor:
-                factors = self._active.get() or self._checkpoint_active
-                if factors is None:
+                state = self._active.get() or self._checkpoint_active
+                if state is None:
                     return output
-                if factor_key not in factors:
+                if factor_key not in state.factors:
                     raise ValueError(f"generated factors are missing configured target {factor_key}")
-                a, b = factors[factor_key]
-                x = inputs[0]
+                a, b = self._place_factors(state, factor_key, output)
+                x = inputs[0].to(device=output.device, dtype=output.dtype)
                 delta = F.linear(F.linear(x, a), b)
-                return output + delta.to(dtype=output.dtype) * config.scaling
+                return output + delta.to(device=output.device, dtype=output.dtype) * config.scaling
 
             self._handles.append(module.register_forward_hook(hook))
 
-    def _prepare_factors(self, factors: GeneratedLora) -> GeneratedLora:
-        prepared: GeneratedLora = {}
-        for key, (expected_in, expected_out, device, dtype) in self._factor_specs.items():
+    @staticmethod
+    def _place_factors(
+        state: _ActiveFactors,
+        key: tuple[int, str],
+        output: torch.Tensor,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        if output.device.type == "meta":
+            raise RuntimeError(
+                f"cannot inject generated factors at {key}: projection output is on the meta device"
+            )
+        cache_key = (key, output.device, output.dtype)
+        if not torch.is_grad_enabled() and cache_key in state.eval_cache:
+            return state.eval_cache[cache_key]
+        a, b = state.factors[key]
+        placed = (
+            a.to(device=output.device, dtype=output.dtype),
+            b.to(device=output.device, dtype=output.dtype),
+        )
+        if not torch.is_grad_enabled():
+            state.eval_cache[cache_key] = placed
+        return placed
+
+    def _prepare_factors(self, factors: GeneratedLora) -> _ActiveFactors:
+        validated: GeneratedLora = {}
+        for key, (expected_in, expected_out) in self._factor_specs.items():
             if key not in factors:
                 raise ValueError(f"generated factors are missing configured target {key}")
             a, b = factors[key]
@@ -132,18 +165,17 @@ class PortalInjector:
                 raise ValueError(
                     f"generated shape mismatch at {key}: A {tuple(a.shape)}, B {tuple(b.shape)}, expected {expected}"
                 )
-            prepared[key] = (
-                a.to(device=device, dtype=dtype),
-                b.to(device=device, dtype=dtype),
-            )
-        return prepared
+            if a.device.type == "meta" or b.device.type == "meta":
+                raise ValueError(f"generated factors at {key} must contain data and cannot be on the meta device")
+            validated[key] = (a, b)
+        return _ActiveFactors(validated)
 
     @contextmanager
     def activate(self, factors: GeneratedLora) -> Iterator[None]:
-        prepared = self._prepare_factors(factors)
-        token = self._active.set(prepared)
+        state = self._prepare_factors(factors)
+        token = self._active.set(state)
         previous_checkpoint = self._checkpoint_active
-        self._checkpoint_active = prepared
+        self._checkpoint_active = state
         try:
             yield
         finally:
