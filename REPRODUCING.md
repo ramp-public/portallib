@@ -1,7 +1,7 @@
 # Training the release artifacts
 
-This guide defines the release recipe for the four native PorTAL artifacts: two jointly trained
-source artifacts and two target-base refits. The [Ramp Labs
+This guide defines the release recipe for five native PorTAL artifacts: two jointly trained source
+artifacts and three target-base refits. The [Ramp Labs
 announcement](https://x.com/RampLabs/status/2072381992285647280) introduces PorTAL. The pinned
 configuration below reproduces the paper's source-training, target-refitting, and evaluation method;
 it does not make a fixed numerical-performance guarantee across hardware or dependency versions.
@@ -45,6 +45,7 @@ portallib validate --config examples/configs/train.toml
 | `Qwen/Qwen3-4B` | `1cfa9a7208912126459214e8b04321603b3df60c` |
 | `Qwen/Qwen3-8B` | `b968826d9c46dd6066d109eabc6255188de91218` |
 | `google/gemma-3-4b-pt` | `cc012e0a6d0787b4adcc0fa2c4da74402494554d` |
+| `google/gemma-4-E2B` | `d29ff6b45f081a49ee2733a859c9c9c2d95d1a6f` |
 
 ## Rebuild the canonical task data
 
@@ -143,7 +144,7 @@ The run writes one complete artifact per source base:
 The two artifacts contain identical task latents and canonical core weights. Each contains only the
 alignment and exact model metadata for its own base.
 
-## Phase 2: refit Qwen3-8B and Gemma 3 4B
+## Phase 2: refit Qwen3-8B, Gemma 3 4B, and Gemma 4 E2B
 
 [`examples/refit_example.py`](examples/refit_example.py) loads either source artifact as a carrier
 for the task latents and canonical core learned jointly from Qwen3-1.7B and Qwen3-4B. It freezes
@@ -162,14 +163,27 @@ The checked-in recipe reads the identical shared weights from the 4B-specific co
 python examples/refit_example.py
 ```
 
-To create the cross-family artifact, select the adjacent Gemma 3 target recipe and its explicit
-`model.language_model.layers` path. Both refits use the same 1,000-example budget and best-epoch
+For Gemma 3, select its exact `model.language_model.layers` path. Gemma 4 uses the same text-decoder
+layer path together with `loader="multimodal_lm"` and `allow_heterogeneous_targets=True`. The latter
+records only projections that exist and groups compatible per-layer projection widths without
+changing the frozen shared core. All three refits use the same 1,000-example budget and best-epoch
 selection rule. The original Qwen source models are not loaded during refitting.
+
+```python
+TARGET_BASE = BaseModelSpec(
+    "google/gemma-4-E2B",
+    "d29ff6b45f081a49ee2733a859c9c9c2d95d1a6f",
+    layer_path="model.language_model.layers",
+    loader="multimodal_lm",
+    allow_heterogeneous_targets=True,
+)
+```
 
 The resulting release artifacts are:
 
 - [`RampPublic/portal-qwen3-8b`](https://huggingface.co/RampPublic/portal-qwen3-8b)
 - [`RampPublic/portal-gemma-3-4b`](https://huggingface.co/RampPublic/portal-gemma-3-4b)
+- [`RampPublic/portal-gemma-4-e2b`](https://huggingface.co/RampPublic/portal-gemma-4-e2b)
 
 ## Phase 3: reload and evaluate
 
@@ -181,7 +195,7 @@ lift. Its default is the Qwen3-8B refit.
 python examples/evaluate_example.py
 ```
 
-Change the artifact and matching `BaseModelSpec` together to evaluate the 1.7B, 4B, or Gemma artifact.
+Change the artifact and matching `BaseModelSpec` together to evaluate any source or refit artifact.
 Release metrics should be taken from this clean Hub reload, not from an in-memory training object.
 
 [`COMPUTE.md`](COMPUTE.md) describes equivalent Docker and Modal launch patterns. Changing the

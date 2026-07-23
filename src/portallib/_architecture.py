@@ -1,4 +1,4 @@
-"""Canonical task-latent to LoRA decoder."""
+"""Internal canonical task-latent to LoRA architecture."""
 
 from __future__ import annotations
 
@@ -78,27 +78,3 @@ class PortalAlignment(nn.Module):
                 self.output[target.output_group] @ canonical_b,
             )
         return generated
-
-
-class PortalDecoder(nn.Module):
-    """Serializable canonical core plus one base-specific alignment."""
-
-    def __init__(
-        self,
-        config: PortalConfig,
-        *,
-        core: PortalCore | None = None,
-        alignment: PortalAlignment | None = None,
-        refit_init: bool = False,
-    ) -> None:
-        super().__init__()
-        self.config = config
-        self.core = core or PortalCore(config)
-        self.alignment = alignment or PortalAlignment(config, zero_output=refit_init)
-        if self.core.config.shared_signature() != config.shared_signature():
-            raise ValueError("canonical core configuration is incompatible with the base artifact")
-        if self.alignment.config != config:
-            raise ValueError("alignment configuration does not match the base artifact")
-
-    def forward(self, z: torch.Tensor) -> GeneratedLora:
-        return self.alignment(self.core, z)

@@ -24,6 +24,7 @@ dependencies = [
   "pydantic>=2.11,<3",
   "safetensors>=0.4,<1",
   "torch>=2.2",
+  "transformers>=5,<6",
 ]
 
 [project.urls]
@@ -40,7 +41,6 @@ portallib = "portallib.cli:main"
 [project.optional-dependencies]
 training = [
   "datasets>=3,<5",
-  "transformers>=5,<6",
 ]
 
 [dependency-groups]
@@ -56,16 +56,21 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.sdist]
 include = [
-  "/CITATION.cff",
   "/CHANGELOG.md",
+  "/CITATION.cff",
   "/CLI.md",
+  "/CODE_OF_CONDUCT.md",
   "/COMPUTE.md",
+  "/CONTRIBUTING.md",
   "/Dockerfile",
   "/LICENSE",
   "/README.md",
+  "/REPRODUCING.md",
+  "/SECURITY.md",
   "/examples",
   "/pyproject.toml",
-  "/scripts",
+  "/scripts/portal_tasks_dataset_card.md",
+  "/scripts/prepare_dataset.py",
   "/src",
   "/tests",
 ]
@@ -75,5 +80,4 @@ target-version = "py311"
 line-length = 120
 
 [tool.ruff.lint]
-# Keep the alpha release focused on correctness-critical lint rules.
-select = ["E9", "F63", "F7", "F82"]
+select = ["B", "E4", "E7", "E9", "F", "I", "SIM", "UP"]

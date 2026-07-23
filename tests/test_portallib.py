@@ -7,13 +7,13 @@ import math
 from pathlib import Path
 from types import SimpleNamespace
 
-import portallib
 import pytest
 import torch
 from peft import PeftModel
 from torch import nn
 from torch.utils.checkpoint import checkpoint
 
+import portallib
 from portallib import (
     ChoiceDataset,
     ChoiceExample,
@@ -23,7 +23,6 @@ from portallib import (
     PortalBase,
     PortalConfig,
     PortalCoreTrainer,
-    PortalDecoder,
     PortalEvaluator,
     PortalModel,
     PortalProjectionTarget,
@@ -31,13 +30,14 @@ from portallib import (
     TaskEvaluation,
     collate_gold_batch,
 )
+from portallib._architecture import PortalAlignment
 from portallib.evaluation import PortalInjector
 from portallib.training import (
     _BatchCycle,
-    _TrainingRunTracker,
     _equalize_gradients,
     _make_scheduler,
     _task_regressions,
+    _TrainingRunTracker,
     _update_ema,
 )
 
@@ -283,12 +283,11 @@ def make_config(model: nn.Module | None = None, *, tasks: list[str] | None = Non
 def make_portal(*, tasks: list[str] | None = None) -> PortalModel:
     torch.manual_seed(7)
     config = make_config(tasks=tasks)
-    decoder = PortalDecoder(config)
+    portal = PortalModel(config, torch.randn(len(config.tasks), config.d_z))
     with torch.no_grad():
-        for head in decoder.core.B.values():
+        for head in portal.core.B.values():
             head.weight.normal_(std=0.02)
-    latents = torch.randn(len(config.tasks), config.d_z)
-    return PortalModel(config, latents, decoder)
+    return portal
 
 
 def make_dataset() -> ChoiceDataset:
@@ -328,13 +327,13 @@ def make_factor_parameters(
 
 def test_canonical_initialization_and_factor_shapes() -> None:
     config = make_config()
-    decoder = PortalDecoder(config)
-    factors = decoder(torch.randn(config.d_z))
+    portal = PortalModel(config, torch.randn(len(config.tasks), config.d_z))
+    factors = portal(torch.randn(config.d_z))
 
-    assert decoder.config.architecture == "canonical"
-    assert torch.count_nonzero(decoder.core.film.weight) == 0
-    assert torch.count_nonzero(decoder.core.film.bias) == 0
-    assert all(torch.count_nonzero(head.weight) == 0 for head in decoder.core.B.values())
+    assert portal.config.architecture == "canonical"
+    assert torch.count_nonzero(portal.core.film.weight) == 0
+    assert torch.count_nonzero(portal.core.film.bias) == 0
+    assert all(torch.count_nonzero(head.weight) == 0 for head in portal.core.B.values())
     assert factors[(0, "q")][0].shape == (2, 4)
     assert factors[(0, "q")][1].shape == (4, 2)
     assert all(torch.count_nonzero(b) == 0 for _a, b in factors.values())
@@ -352,7 +351,7 @@ def test_full_module_configuration_includes_attention_and_mlp_projections() -> N
         hidden=5,
         d_core=3,
     )
-    factors = PortalDecoder(config)(torch.randn(3))
+    factors = PortalModel(config, torch.randn(1, config.d_z))(torch.randn(3))
 
     assert set(config.modules) == {"q", "k", "v", "o", "gate", "up", "down"}
     assert set(module for _layer, module in factors) == set(config.modules)
@@ -360,11 +359,16 @@ def test_full_module_configuration_includes_attention_and_mlp_projections() -> N
 
 def test_refit_alignment_starts_with_zero_delta_after_trained_core() -> None:
     config = make_config()
-    source = PortalDecoder(config)
+    source = PortalModel(config, torch.randn(len(config.tasks), config.d_z))
     with torch.no_grad():
         for head in source.core.B.values():
             head.weight.normal_()
-    refit = PortalDecoder(config, core=copy.deepcopy(source.core), refit_init=True)
+    refit = PortalModel(
+        config,
+        source.task_latents,
+        core=copy.deepcopy(source.core),
+        alignment=PortalAlignment(config, zero_output=True),
+    )
 
     factors = refit(torch.randn(config.d_z))
 
@@ -374,6 +378,15 @@ def test_refit_alignment_starts_with_zero_delta_after_trained_core() -> None:
 def test_native_artifact_round_trip(tmp_path: Path) -> None:
     original = make_portal()
     generated = original.generate("alpha")
+    expected_keys = {
+        "task_latents",
+        *(f"core.{name}" for name in original.core.state_dict()),
+        *(f"alignment.{name}" for name in original.alignment.state_dict()),
+    }
+
+    assert isinstance(original, nn.Module)
+    assert set(original.state_dict()) == expected_keys
+    assert dict(original.named_parameters())["task_latents"] is original.task_latents
     original.save_pretrained(tmp_path)
 
     assert {path.name for path in tmp_path.iterdir()} == {"README.md", "config.json", "model.safetensors"}
@@ -384,6 +397,14 @@ def test_native_artifact_round_trip(tmp_path: Path) -> None:
         actual_a, actual_b = loaded.generate("alpha")[key]
         torch.testing.assert_close(actual_a, expected_a)
         torch.testing.assert_close(actual_b, expected_b)
+
+
+def test_portal_model_uses_standard_module_device_and_dtype_conversion() -> None:
+    portal = make_portal().to(dtype=torch.float64)
+
+    assert portal.task_latents.dtype == torch.float64
+    assert all(parameter.dtype == torch.float64 for parameter in portal.parameters())
+    assert all(factor.dtype == torch.float64 for pair in portal.generate("alpha").values() for factor in pair)
 
 
 def test_hub_download_uses_standard_files(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -440,11 +461,10 @@ def test_peft_targets_only_exact_language_model_paths(tmp_path: Path) -> None:
         hidden=5,
         d_core=3,
     )
-    decoder = PortalDecoder(config)
+    portal = PortalModel(config, torch.randn(1, config.d_z))
     with torch.no_grad():
-        for head in decoder.core.B.values():
+        for head in portal.core.B.values():
             head.weight.normal_(std=0.02)
-    portal = PortalModel(config, torch.randn(1, config.d_z), decoder)
 
     peft_model = portal.get_peft_model("alpha", base)
     adapted = [name for name, module in peft_model.named_modules() if hasattr(module, "lora_A")]
@@ -521,15 +541,19 @@ def make_heterogeneous_portal() -> PortalModel:
         d_core=3,
     )
     target_config = make_heterogeneous_config()
-    source = PortalDecoder(source_config)
+    source = PortalModel(source_config, torch.randn(2, source_config.d_z))
     with torch.no_grad():
         for head in source.core.B.values():
             head.weight.normal_(std=0.02)
-        alignment = PortalDecoder(target_config, core=copy.deepcopy(source.core), refit_init=True).alignment
+        alignment = PortalAlignment(target_config, zero_output=True)
         for parameter in alignment.output.values():
             parameter.normal_(std=0.02)
-    decoder = PortalDecoder(target_config, core=copy.deepcopy(source.core), alignment=alignment)
-    return PortalModel(target_config, torch.randn(2, target_config.d_z), decoder)
+    return PortalModel(
+        target_config,
+        torch.randn(2, target_config.d_z),
+        core=copy.deepcopy(source.core),
+        alignment=alignment,
+    )
 
 
 def test_heterogeneous_target_layout_groups_shapes_and_absent_projections() -> None:
@@ -581,16 +605,21 @@ def test_heterogeneous_layout_is_opt_in_and_validates_exact_base_dimensions() ->
 def test_heterogeneous_refit_alignment_is_differentiable_and_core_compatible() -> None:
     source = make_portal()
     target_config = make_heterogeneous_config()
-    decoder = PortalDecoder(target_config, core=copy.deepcopy(source.decoder.core), refit_init=True)
+    portal = PortalModel(
+        target_config,
+        torch.randn(len(target_config.tasks), target_config.d_z),
+        core=copy.deepcopy(source.core),
+        alignment=PortalAlignment(target_config, zero_output=True),
+    )
 
-    assert all(torch.count_nonzero(parameter) == 0 for parameter in decoder.alignment.output.values())
+    assert all(torch.count_nonzero(parameter) == 0 for parameter in portal.alignment.output.values())
     with torch.no_grad():
-        for parameter in decoder.alignment.output.values():
+        for parameter in portal.alignment.output.values():
             parameter.normal_(std=0.02)
-    factors = decoder(torch.randn(target_config.d_z))
+    factors = portal(torch.randn(target_config.d_z))
     sum(value.square().sum() for pair in factors.values() for value in pair).backward()
 
-    assert all(parameter.grad is not None for parameter in decoder.alignment.parameters())
+    assert all(parameter.grad is not None for parameter in portal.alignment.parameters())
 
 
 def test_heterogeneous_artifact_and_peft_round_trip(tmp_path: Path) -> None:
@@ -616,7 +645,7 @@ def test_heterogeneous_artifact_and_peft_round_trip(tmp_path: Path) -> None:
 
 
 def test_uniform_alignment_state_names_remain_compatible() -> None:
-    alignment = PortalDecoder(make_config()).alignment
+    alignment = PortalModel(make_config(), torch.randn(2, 3)).alignment
 
     assert set(alignment.input) == {"q", "v"}
     assert set(alignment.output) == {"q", "v"}
@@ -651,10 +680,14 @@ def test_injector_uses_live_output_placement_for_meta_weight() -> None:
     value = torch.randn(2, 3, 4, dtype=torch.float64, requires_grad=True)
     raw = projection(value).detach()
     a, b = factors[(0, "q")]
-    expected = raw + torch.nn.functional.linear(
-        torch.nn.functional.linear(value.detach(), a.detach().to(dtype=value.dtype)),
-        b.detach().to(dtype=value.dtype),
-    ) * config.scaling
+    expected = (
+        raw
+        + torch.nn.functional.linear(
+            torch.nn.functional.linear(value.detach(), a.detach().to(dtype=value.dtype)),
+            b.detach().to(dtype=value.dtype),
+        )
+        * config.scaling
+    )
     injector = PortalInjector(base, config)
 
     try:
@@ -688,22 +721,25 @@ def test_injector_rejects_missing_misshaped_and_meta_factors() -> None:
     injector = PortalInjector(base, config)
 
     try:
-        with pytest.raises(ValueError, match="missing configured target"):
-            with injector.activate({}):
-                pass
-        with pytest.raises(ValueError, match="generated shape mismatch"):
-            with injector.activate({(0, "q"): (torch.zeros(1, 4), torch.zeros(4, 2))}):
-                pass
-        with pytest.raises(ValueError, match="cannot be on the meta device"):
-            with injector.activate(
+        with pytest.raises(ValueError, match="missing configured target"), injector.activate({}):
+            pass
+        with (
+            pytest.raises(ValueError, match="generated shape mismatch"),
+            injector.activate({(0, "q"): (torch.zeros(1, 4), torch.zeros(4, 2))}),
+        ):
+            pass
+        with (
+            pytest.raises(ValueError, match="cannot be on the meta device"),
+            injector.activate(
                 {
                     (0, "q"): (
                         torch.empty(2, 4, device="meta"),
                         torch.empty(4, 2, device="meta"),
                     )
                 }
-            ):
-                pass
+            ),
+        ):
+            pass
     finally:
         injector.close()
 
@@ -723,9 +759,8 @@ def test_injector_rejects_meta_runtime_output() -> None:
     injector = PortalInjector(base, config)
 
     try:
-        with pytest.raises(RuntimeError, match="projection output is on the meta device"):
-            with injector.activate(factors):
-                projection(torch.ones(1, 4))
+        with pytest.raises(RuntimeError, match="projection output is on the meta device"), injector.activate(factors):
+            projection(torch.ones(1, 4))
     finally:
         injector.close()
 
@@ -733,9 +768,9 @@ def test_injector_rejects_meta_runtime_output() -> None:
 def test_injector_is_differentiable_and_checkpoint_safe() -> None:
     base = ToyCausalLM()
     config = make_config(base, tasks=["alpha"])
-    decoder = PortalDecoder(config)
+    portal = PortalModel(config, torch.randn(1, config.d_z))
     with torch.no_grad():
-        for head in decoder.core.B.values():
+        for head in portal.core.B.values():
             head.weight.normal_(std=0.1)
     latent = nn.Parameter(torch.randn(config.d_z))
     injector = PortalInjector(base, config)
@@ -745,18 +780,18 @@ def test_injector_is_differentiable_and_checkpoint_safe() -> None:
     ids = torch.tensor([[1, 4, 6, 2]])
     labels = torch.tensor([[-100, -100, -100, 2]])
 
-    with injector.activate(decoder(latent)):
+    with injector.activate(portal(latent)):
         base(input_ids=ids, labels=labels).loss.backward()
     injector.close()
 
     assert latent.grad is not None and torch.isfinite(latent.grad).all()
-    assert any(parameter.grad is not None for parameter in decoder.parameters())
+    assert any(parameter.grad is not None for parameter in portal.parameters())
 
 
 def test_injector_caches_live_factor_placement_during_evaluation(monkeypatch: pytest.MonkeyPatch) -> None:
     base = ToyCausalLM()
     config = make_config(base, tasks=["alpha"])
-    factors = PortalDecoder(config)(torch.randn(config.d_z))
+    factors = PortalModel(config, torch.randn(1, config.d_z))(torch.randn(config.d_z))
     factor_ids = {id(factor) for pair in factors.values() for factor in pair}
     original_to = torch.Tensor.to
     conversion_calls = 0
@@ -770,10 +805,9 @@ def test_injector_caches_live_factor_placement_during_evaluation(monkeypatch: py
     monkeypatch.setattr(torch.Tensor, "to", counting_to)
     injector = PortalInjector(base, config)
     value = torch.randn(1, 2, base.model.layers[0].self_attn.q_proj.in_features)
-    with torch.no_grad():
-        with injector.activate(factors):
-            base.model.layers[0](value)
-            base.model.layers[0](value)
+    with torch.no_grad(), injector.activate(factors):
+        base.model.layers[0](value)
+        base.model.layers[0](value)
     injector.close()
 
     assert conversion_calls == 2 * len(config.modules)
@@ -826,7 +860,11 @@ def test_injector_matches_reference_with_disk_offloaded_layer(tmp_path: Path) ->
     assert target.weight.device.type == "meta"
     torch.testing.assert_close(offloaded_output, plain_output)
     torch.testing.assert_close(offloaded_value.grad, plain_value.grad)
-    for offloaded_factor, plain_factor in zip(offloaded_factors[(1, "q")], plain_factors[(1, "q")]):
+    for offloaded_factor, plain_factor in zip(
+        offloaded_factors[(1, "q")],
+        plain_factors[(1, "q")],
+        strict=True,
+    ):
         assert offloaded_factor.grad is not None and torch.isfinite(offloaded_factor.grad).all()
         assert torch.count_nonzero(offloaded_factor.grad) > 0
         torch.testing.assert_close(offloaded_factor.grad, plain_factor.grad)
@@ -881,7 +919,7 @@ def test_evaluator_epoch_zero_matches_unadapted_base() -> None:
     base = PortalBase("toy/base", model, ToyTokenizer())
     dataset = make_dataset()
     config = make_config(model)
-    zero_portal = PortalModel(config, torch.randn(2, 3), PortalDecoder(config))
+    zero_portal = PortalModel(config, torch.randn(2, 3))
     evaluator = PortalEvaluator(max_prompt=32)
 
     unadapted = evaluator.evaluate(base, dataset)
@@ -897,7 +935,7 @@ def test_evaluator_accepts_portal_task_subsets_and_rejects_unknown_tasks() -> No
     model = ToyCausalLM()
     base = PortalBase("toy/base", model, ToyTokenizer())
     dataset = make_dataset()
-    portal = PortalModel(make_config(model), torch.randn(2, 3), PortalDecoder(make_config(model)))
+    portal = PortalModel(make_config(model), torch.randn(2, 3))
 
     result = PortalEvaluator(max_prompt=32).evaluate(base, dataset, tasks=("beta",), portal=portal)
 
@@ -912,6 +950,21 @@ def test_evaluator_rejects_an_artifact_for_a_different_base() -> None:
 
     with pytest.raises(ValueError, match="artifact expects 'toy/base'.*'other/base'"):
         PortalEvaluator(max_prompt=32).evaluate(base, dataset, portal=make_portal())
+
+
+def test_evaluator_rejects_a_different_base_revision() -> None:
+    dataset = make_dataset()
+    portal = make_portal()
+    object.__setattr__(portal.config, "base_model_revision", "expected-revision")
+    base = PortalBase(
+        "toy/base",
+        FixedChoiceLM(),
+        FixedChoiceTokenizer(),
+        revision="other-revision",
+    )
+
+    with pytest.raises(ValueError, match="expects base revision 'expected-revision'.*'other-revision'"):
+        PortalEvaluator(max_prompt=32).evaluate(base, dataset, portal=portal)
 
 
 def test_evaluator_uses_character_normalized_choice_score_and_token_nll() -> None:
@@ -1141,17 +1194,17 @@ def test_balanced_core_training_and_frozen_refit_contract() -> None:
 
     assert trained.diagnostics["steps_per_epoch"] == 5
     assert trained.diagnostics["units_per_step"] == 4
-    assert trained.diagnostics["first_decoder_grad_norm"] > 0
+    assert trained.diagnostics["first_generator_grad_norm"] > 0
     assert len(trained.history) == 2 and trained.history[0].epoch == 0
     assert trained.best_epoch == trained.best_loss_epoch == 1
     assert set(trained.artifacts) == {"toy/one", "toy/two"}
-    first_core = trained.artifacts["toy/one"].decoder.core.state_dict()
-    second_core = trained.artifacts["toy/two"].decoder.core.state_dict()
+    first_core = trained.artifacts["toy/one"].core.state_dict()
+    second_core = trained.artifacts["toy/two"].core.state_dict()
     for name in first_core:
         torch.testing.assert_close(first_core[name], second_core[name])
 
     source = trained.artifacts["toy/two"]
-    source_core = copy.deepcopy(source.decoder.core.state_dict())
+    source_core = copy.deepcopy(source.core.state_dict())
     refit = PortalAdapterRefitter(
         source,
         PortalBase("toy/target", ToyCausalLM(seed=3), ToyTokenizer()),
@@ -1165,7 +1218,7 @@ def test_balanced_core_training_and_frozen_refit_contract() -> None:
     assert len(refit.history) == 2 and refit.history[0].epoch == 0
     assert refit.best_epoch == refit.best_loss_epoch == 1
     for name, value in source_core.items():
-        torch.testing.assert_close(refit.artifact.decoder.core.state_dict()[name], value)
+        torch.testing.assert_close(refit.artifact.core.state_dict()[name], value)
     torch.testing.assert_close(refit.artifact.task_latents, source.task_latents)
 
 
@@ -1174,9 +1227,9 @@ def test_expanded_training_defaults() -> None:
 
     assert recipe.source_max_examples == 2000
     assert recipe.eval_batch_size == 8
-    assert recipe.source_resample_each_epoch is True
+    assert recipe.source_resample_each_epoch is False
     assert recipe.source_steps_per_epoch is None
-    assert recipe.refit_max_examples == 2000
+    assert recipe.refit_max_examples == 1000
     assert recipe.eval_max_examples == 1000
     assert recipe.epochs == 5
     assert recipe.batch_size == 4
@@ -1244,7 +1297,7 @@ def test_source_rounds_are_derived_from_longest_capped_task() -> None:
     assert result.diagnostics["steps_per_epoch"] == 2
     assert result.diagnostics["source_examples_per_task"] == {"alpha": 3, "beta": 3}
     assert result.diagnostics["source_pool_examples_per_task"] == {"alpha": 4, "beta": 4}
-    assert result.diagnostics["source_resample_each_epoch"] is True
+    assert result.diagnostics["source_resample_each_epoch"] is False
     for epoch in result.history:
         for task in epoch.evaluations["toy/one"].tasks.values():
             assert task.examples == 1

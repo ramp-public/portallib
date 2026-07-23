@@ -7,7 +7,6 @@ from typing import Any
 
 from ._paths import exact_module_path, validate_dotted_path
 
-
 DEFAULT_MODULE_PATHS = {
     "q": "self_attn.q_proj",
     "k": "self_attn.k_proj",
@@ -190,9 +189,7 @@ def discover_projection_topology(
     return _ProjectionDiscovery(
         n_layers=n_layers,
         projections=tuple(projections),
-        dimensions_by_module={
-            name: frozenset(dimensions) for name, dimensions in dimensions_by_module.items()
-        },
+        dimensions_by_module={name: frozenset(dimensions) for name, dimensions in dimensions_by_module.items()},
         missing_targets=tuple(missing_targets),
     )
 
@@ -210,9 +207,7 @@ def require_supported_topology(
         layer_index, module_name = discovery.missing_targets[0]
         exact_path = exact_module_path(layer_path, layer_index, module_paths[module_name])
         raise ValueError(f"base model has no exact projection path {exact_path!r}")
-    module_name = next(
-        name for name, dimensions in discovery.dimensions_by_module.items() if len(dimensions) != 1
-    )
+    module_name = next(name for name, dimensions in discovery.dimensions_by_module.items() if len(dimensions) != 1)
     raise ValueError(
         f"projection dimensions vary across layers for {module_name!r}: "
         f"{sorted(discovery.dimensions_by_module[module_name])}"
@@ -232,8 +227,7 @@ def build_artifact_topology(
 
     if not discovery.heterogeneous:
         dimensions = {
-            name: next(iter(module_dimensions))
-            for name, module_dimensions in discovery.dimensions_by_module.items()
+            name: next(iter(module_dimensions)) for name, module_dimensions in discovery.dimensions_by_module.items()
         }
         return _ArtifactTopology(
             schema_version=1,

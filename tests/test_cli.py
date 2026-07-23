@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 from portallib import cli
-
+from portallib.cli.workflows import _write_result
 
 ROOT = Path(__file__).parents[1]
 CONFIGS = ROOT / "examples" / "configs"
@@ -46,7 +46,7 @@ def test_validate_command_does_not_run_recipe(monkeypatch, capsys) -> None:
     assert json.loads(capsys.readouterr().out) == {
         "event": "validated",
         "kind": "train",
-        "schema_version": 1,
+        "recipe_version": 1,
     }
 
 
@@ -60,7 +60,7 @@ def test_validate_reads_recipe_from_stdin_once(monkeypatch, capsys) -> None:
 
     stream = CountingInput(
         """
-schema_version = 1
+recipe_version = 1
 kind = "evaluate"
 artifact = "example/artifact"
 
@@ -78,7 +78,7 @@ model_id = "example/base"
     assert json.loads(capsys.readouterr().out) == {
         "event": "validated",
         "kind": "evaluate",
-        "schema_version": 1,
+        "recipe_version": 1,
     }
 
 
@@ -90,7 +90,7 @@ def test_stdin_recipe_dispatches_and_resolves_paths_from_cwd(monkeypatch, tmp_pa
         "sys.stdin",
         io.StringIO(
             """
-schema_version = 1
+recipe_version = 1
 kind = "evaluate"
 artifact = "./artifacts/portal"
 result_path = "./results/evaluate.json"
@@ -122,7 +122,7 @@ def test_stdin_train_recipe_resolves_output_from_cwd(monkeypatch, tmp_path: Path
         "sys.stdin",
         io.StringIO(
             """
-schema_version = 1
+recipe_version = 1
 kind = "train"
 output_dir = "./artifacts/source"
 
@@ -153,7 +153,7 @@ def test_dot_slash_dash_remains_a_file_path(monkeypatch, tmp_path: Path, capsys)
     monkeypatch.chdir(tmp_path)
     (tmp_path / "-").write_text(
         """
-schema_version = 1
+recipe_version = 1
 kind = "evaluate"
 artifact = "example/artifact"
 
@@ -182,7 +182,7 @@ def test_recipe_rejects_unknown_keys_and_credentials(tmp_path: Path) -> None:
     path = tmp_path / "recipe.toml"
     path.write_text(
         """
-schema_version = 1
+recipe_version = 1
 kind = "evaluate"
 artifact = "example/artifact"
 token = "must-not-be-accepted"
@@ -204,7 +204,7 @@ def test_recipe_rejects_unknown_nested_keys(tmp_path: Path) -> None:
     path = tmp_path / "recipe.toml"
     path.write_text(
         """
-schema_version = 1
+recipe_version = 1
 kind = "evaluate"
 artifact = "example/artifact"
 
@@ -226,7 +226,7 @@ def test_recipe_does_not_coerce_toml_field_types(tmp_path: Path) -> None:
     path = tmp_path / "recipe.toml"
     path.write_text(
         """
-schema_version = 1
+recipe_version = 1
 kind = "evaluate"
 artifact = "example/artifact"
 batch_size = "8"
@@ -248,7 +248,7 @@ def test_validate_rejects_invalid_training_semantics(tmp_path: Path) -> None:
     path = tmp_path / "recipe.toml"
     path.write_text(
         """
-schema_version = 1
+recipe_version = 1
 kind = "train"
 output_dir = "output"
 
@@ -272,7 +272,7 @@ def test_local_dataset_path_is_explicit_and_relative_to_recipe(tmp_path: Path) -
     path = tmp_path / "recipe.toml"
     path.write_text(
         """
-schema_version = 1
+recipe_version = 1
 kind = "evaluate"
 artifact = "example/artifact"
 
@@ -295,7 +295,7 @@ def test_local_artifact_and_base_paths_are_relative_to_recipe(tmp_path: Path) ->
     path = tmp_path / "recipe.toml"
     path.write_text(
         """
-schema_version = 1
+recipe_version = 1
 kind = "evaluate"
 artifact = "./artifacts/portal"
 
@@ -318,7 +318,7 @@ def test_refit_recipe_rejects_task_subsets(tmp_path: Path) -> None:
     path = tmp_path / "recipe.toml"
     path.write_text(
         """
-schema_version = 1
+recipe_version = 1
 kind = "refit"
 output_dir = "output"
 source_artifact = "example/source"
@@ -368,7 +368,7 @@ def test_final_result_is_printed_and_persisted(tmp_path: Path, capsys) -> None:
     recipe = recipe.model_copy(update={"result_path": tmp_path / "result.json"})
     result = {"event": "result", "kind": "evaluate", "score": 0.75}
 
-    cli._write_result(recipe, result)
+    _write_result(recipe, result)
 
     assert json.loads(capsys.readouterr().out) == result
     assert json.loads(recipe.result_path.read_text(encoding="utf-8")) == result

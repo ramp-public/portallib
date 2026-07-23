@@ -7,15 +7,17 @@ import sys
 from pathlib import Path
 
 from .. import __version__
-from .recipes import (
-    EvaluateRecipe,
-    RecipeError,
-    RefitRecipe,
-    TrainRecipe,
-    _parse_recipe,
-    load_recipe,
-)
-from .workflows import _emit, _run_evaluate, _run_refit, _run_train, _write_result
+from .recipes import EvaluateRecipe, RecipeError, RefitRecipe, TrainRecipe, _parse_recipe, load_recipe
+from .workflows import _emit, _run_evaluate, _run_refit, _run_train
+
+__all__ = [
+    "EvaluateRecipe",
+    "RefitRecipe",
+    "TrainRecipe",
+    "build_parser",
+    "load_recipe",
+    "main",
+]
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -45,7 +47,7 @@ def main(argv: list[str] | None = None) -> int:
         _emit({"event": "error", "stage": "config", "message": str(exc)}, stream=sys.stderr)
         return 2
     if args.command == "validate":
-        _emit({"event": "validated", "kind": recipe.kind, "schema_version": 1})
+        _emit({"event": "validated", "kind": recipe.kind, "recipe_version": recipe.recipe_version})
         return 0
     if recipe.kind != args.command:
         _emit(

@@ -8,7 +8,6 @@ from types import ModuleType
 import torch
 from torch import nn
 
-
 ROOT = Path(__file__).parents[1]
 EXAMPLES = ROOT / "examples"
 if str(EXAMPLES) not in sys.path:
@@ -59,6 +58,7 @@ def test_evaluation_example_uses_published_artifact_and_matching_base() -> None:
 
 def test_base_recipe_forwards_host_loading_controls_without_bulk_device_move(monkeypatch) -> None:
     from transformers import AutoModelForCausalLM, AutoTokenizer
+
     from portallib.runtime import BaseModelSpec, load_base
 
     calls: dict[str, object] = {}
@@ -117,6 +117,7 @@ def test_base_recipe_forwards_host_loading_controls_without_bulk_device_move(mon
 
 def test_multimodal_base_recipe_uses_processor_tokenizer_and_explicit_topology(monkeypatch) -> None:
     from transformers import AutoModelForMultimodalLM, AutoProcessor
+
     from portallib.runtime import BaseModelSpec, load_base
 
     calls: dict[str, object] = {}

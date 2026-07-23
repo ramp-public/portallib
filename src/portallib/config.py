@@ -18,7 +18,6 @@ from ._topology import (
     resolve_module_paths,
 )
 
-
 _ARCHITECTURE_FIELDS = ("modules", "rank", "alpha", "d_z", "d_layer", "hidden", "d_core")
 
 
@@ -26,9 +25,9 @@ def _validate_common(config: PortalConfig) -> None:
     if config.library_name != "portallib":
         raise ValueError(f"unsupported artifact library: {config.library_name!r}")
     if config.architecture != "canonical":
-        raise ValueError("portallib v1 supports architecture='canonical' only")
+        raise ValueError("PorTAL artifacts support architecture='canonical' only")
     if config.task_type != "CAUSAL_LM":
-        raise ValueError("portallib v1 supports task_type='CAUSAL_LM' only")
+        raise ValueError("PorTAL artifacts support task_type='CAUSAL_LM' only")
     if not config.base_model_name_or_path.strip():
         raise ValueError("base_model_name_or_path must not be empty")
     if not config.tasks or len(set(config.tasks)) != len(config.tasks):
@@ -197,18 +196,16 @@ class PortalConfig:
         Path(path).write_text(json.dumps(self.to_dict(), indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
     @classmethod
-    def from_dict(cls, value: dict[str, Any]) -> "PortalConfig":
+    def from_dict(cls, value: dict[str, Any]) -> PortalConfig:
         if not isinstance(value, dict):
             raise TypeError("PorTAL configuration must be a JSON object")
         parsed = dict(value)
         if parsed.get("target_layout") is not None:
-            parsed["target_layout"] = [
-                PortalProjectionTarget.from_dict(target) for target in parsed["target_layout"]
-            ]
+            parsed["target_layout"] = [PortalProjectionTarget.from_dict(target) for target in parsed["target_layout"]]
         return cls(**parsed)
 
     @classmethod
-    def from_json(cls, path: str | Path) -> "PortalConfig":
+    def from_json(cls, path: str | Path) -> PortalConfig:
         return cls.from_dict(json.loads(Path(path).read_text(encoding="utf-8")))
 
     @classmethod
@@ -223,7 +220,7 @@ class PortalConfig:
         module_paths: dict[str, str] | None = None,
         allow_heterogeneous_targets: bool = False,
         **kwargs: Any,
-    ) -> "PortalConfig":
+    ) -> PortalConfig:
         """Build a config by resolving every requested projection path exactly."""
         paths = resolve_module_paths(modules, module_paths)
         discovery = discover_projection_topology(

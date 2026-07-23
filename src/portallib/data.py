@@ -24,7 +24,7 @@ class ChoiceExample:
             raise ValueError("gold_idx must index choices")
 
     @classmethod
-    def from_dict(cls, row: dict[str, Any]) -> "ChoiceExample":
+    def from_dict(cls, row: dict[str, Any]) -> ChoiceExample:
         return cls(
             task=str(row["task"]),
             prompt=str(row["prompt"]),
@@ -77,7 +77,7 @@ class ChoiceDataset:
         output.write_text(json.dumps(self.to_dict()), encoding="utf-8")
 
     @classmethod
-    def from_json(cls, path: str | Path) -> "ChoiceDataset":
+    def from_json(cls, path: str | Path) -> ChoiceDataset:
         """Load ``{'train': [...], 'validation': [...]}`` from a local JSON file."""
         value = json.loads(Path(path).read_text(encoding="utf-8"))
         if not isinstance(value, dict) or set(value) != {"train", "validation"}:
@@ -94,7 +94,7 @@ class ChoiceDataset:
         *,
         revision: str | None = None,
         token: str | bool | None = None,
-    ) -> "ChoiceDataset":
+    ) -> ChoiceDataset:
         """Load a normalized dataset repository with train/validation splits."""
         try:
             from datasets import load_dataset

@@ -7,7 +7,6 @@ from types import ModuleType
 
 import pytest
 
-
 SCRIPT = Path(__file__).parents[1] / "scripts" / "prepare_dataset.py"
 SPEC = importlib.util.spec_from_file_location("prepare_dataset", SCRIPT)
 assert SPEC is not None and SPEC.loader is not None
@@ -152,7 +151,7 @@ def test_dataset_and_provenance_card_are_uploaded_atomically(monkeypatch: pytest
             self.rows = rows
 
         @classmethod
-        def from_list(cls, rows: list[dict[str, object]]) -> "FakeDataset":
+        def from_list(cls, rows: list[dict[str, object]]) -> FakeDataset:
             return cls(rows)
 
         def to_parquet(self, path: Path) -> None:
@@ -181,9 +180,7 @@ def test_dataset_and_provenance_card_are_uploaded_atomically(monkeypatch: pytest
 
     prepare_dataset._push_dataset_with_card(dataset, "owner/tasks", private=True)
 
-    assert repositories == [
-        {"repo_id": "owner/tasks", "repo_type": "dataset", "private": True, "exist_ok": True}
-    ]
+    assert repositories == [{"repo_id": "owner/tasks", "repo_type": "dataset", "private": True, "exist_ok": True}]
     assert len(uploads) == 1
     assert uploads[0]["repo_id"] == "owner/tasks"
     assert uploads[0]["card"] == prepare_dataset.DATASET_CARD.read_bytes()

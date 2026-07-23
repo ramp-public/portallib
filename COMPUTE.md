@@ -19,8 +19,8 @@ the matching `refit` and `evaluate` TOML recipes. Both interfaces call the same 
 refitting, and evaluation implementation.
 
 The compute platform provisions the GPU, preserves the Hugging Face cache and `artifacts/`
-directory, and supplies any required Hugging Face token. The release source and both 1,000-example
-refit settings are documented in [`REPRODUCING.md`](REPRODUCING.md).
+directory, and supplies any required Hugging Face token. The release source and target-refit
+settings are documented in [`REPRODUCING.md`](REPRODUCING.md).
 
 ## Hardware and execution model
 

@@ -2,21 +2,19 @@
 
 from __future__ import annotations
 
-import inspect
 import json
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 import torch
 from huggingface_hub import ModelCard, ModelHubMixin, constants, hf_hub_download
+from peft import LoraConfig
 from safetensors import safe_open
 from safetensors.torch import load_file, save_file
+from torch import nn
 
+from ._architecture import GeneratedLora, PortalAlignment, PortalCore
 from .config import PortalConfig
-from .decoder import GeneratedLora, PortalDecoder
-
-if TYPE_CHECKING:
-    from peft import LoraConfig
 
 CONFIG_NAME = constants.CONFIG_NAME
 WEIGHTS_NAME = constants.SAFETENSORS_SINGLE_FILE
@@ -40,6 +38,7 @@ This artifact generates task-specific LoRA adapters for `{{ base_model }}` with
 
 
 class PortalModel(
+    nn.Module,
     ModelHubMixin,
     library_name="portallib",
     license="apache-2.0",
@@ -48,35 +47,45 @@ class PortalModel(
     docs_url="https://github.com/ramp-public/portallib#readme",
     model_card_template=_MODEL_CARD_TEMPLATE,
 ):
-    """A set of shared task latents and one decoder for a supported base model."""
+    """Task latents, canonical core, and one base-specific alignment."""
 
     def __init__(
         self,
         config: PortalConfig,
         task_latents: torch.Tensor,
-        decoder: PortalDecoder,
         *,
-        base_model: torch.nn.Module | None = None,
+        core: PortalCore | None = None,
+        alignment: PortalAlignment | None = None,
     ) -> None:
-        if decoder.config != config:
-            raise ValueError("decoder configuration does not match the artifact configuration")
+        super().__init__()
         if task_latents.shape != (len(config.tasks), config.d_z):
             raise ValueError(
                 f"expected task_latents shape {(len(config.tasks), config.d_z)}, got {tuple(task_latents.shape)}"
             )
         self.config = config
-        self.task_latents = task_latents
-        self.decoder = decoder
-        self.base_model = base_model
+        self.task_latents = nn.Parameter(task_latents.detach().clone())
+        self.core = core or PortalCore(config)
+        self.alignment = alignment or PortalAlignment(config)
+        if self.core.config.shared_signature() != config.shared_signature():
+            raise ValueError("canonical core configuration is incompatible with the base artifact")
+        if self.alignment.config != config:
+            raise ValueError("alignment configuration does not match the base artifact")
 
     @property
     def tasks(self) -> tuple[str, ...]:
         return tuple(self.config.tasks)
 
-    def validate_base_model(self, model_id: str) -> None:
-        """Require the base identity encoded by this base-specific artifact."""
+    def forward(self, task_latent: torch.Tensor) -> GeneratedLora:
+        """Generate LoRA factors differentiably from one task latent."""
+        return self.alignment(self.core, task_latent)
+
+    def validate_base_model(self, model_id: str, revision: str | None = None) -> None:
+        """Require the base identity and, when recorded, its exact revision."""
         if self.config.base_model_name_or_path != model_id:
             raise ValueError(f"artifact expects {self.config.base_model_name_or_path!r}, but received {model_id!r}")
+        expected_revision = self.config.base_model_revision
+        if expected_revision is not None and revision != expected_revision:
+            raise ValueError(f"artifact expects base revision {expected_revision!r}, but received {revision!r}")
 
     def generate(self, task: str) -> GeneratedLora:
         """Generate LoRA A/B matrices for one named task."""
@@ -84,26 +93,20 @@ class PortalModel(
             index = self.config.tasks.index(task)
         except ValueError as exc:
             raise KeyError(f"unknown task {task!r}; available tasks: {', '.join(self.config.tasks)}") from exc
-        device = next(self.decoder.parameters()).device
-        latent = self.task_latents[index].to(device=device, dtype=next(self.decoder.parameters()).dtype)
-        self.decoder.eval()
-        with torch.no_grad():
-            return self.decoder(latent)
+        self.eval()
+        with torch.inference_mode():
+            return self(self.task_latents[index])
 
     def get_peft_model(
         self,
         task: str,
-        base_model: torch.nn.Module | None = None,
+        base_model: torch.nn.Module,
         *,
         adapter_name: str = "default",
     ) -> torch.nn.Module:
         """Create a normal PEFT LoRA model populated with PorTAL-generated weights."""
         from peft import get_peft_model, get_peft_model_state_dict, set_peft_model_state_dict
 
-        if base_model is None:
-            base_model = self.base_model
-        if base_model is None:
-            raise ValueError("base_model must be passed here or to from_pretrained")
         peft_config = self._peft_config()
         peft_model = get_peft_model(base_model, peft_config, adapter_name=adapter_name)
         generated_state = self._peft_state_dict(task)
@@ -130,10 +133,8 @@ class PortalModel(
         peft_model.eval()
         return peft_model
 
-    def _peft_config(self) -> "LoraConfig":
+    def _peft_config(self) -> LoraConfig:
         """Build the standard PEFT configuration represented by this artifact."""
-        from peft import LoraConfig
-
         target_paths = [exact_path for _target, exact_path in self.config.resolved_targets()]
         return LoraConfig(
             base_model_name_or_path=self.config.base_model_name_or_path,
@@ -154,7 +155,7 @@ class PortalModel(
         for target, exact_path in self.config.resolved_targets():
             key = target.key
             if key not in generated:
-                raise ValueError(f"decoder did not generate configured PorTAL target {key}")
+                raise ValueError(f"model did not generate configured PorTAL target {key}")
             a, b = generated[key]
             module_key = f"base_model.model.{exact_path}"
             adapter_state[f"{module_key}.lora_A.weight"] = a.detach().cpu().contiguous()
@@ -188,19 +189,7 @@ class PortalModel(
 
     def _save_pretrained(self, save_directory: Path) -> None:
         """Save PorTAL tensors; ModelHubMixin handles config and model-card files."""
-        tensors: dict[str, torch.Tensor] = {"task_latents": self.task_latents.detach().cpu().contiguous()}
-        tensors.update(
-            {
-                f"core.{name}": value.detach().cpu().contiguous()
-                for name, value in self.decoder.core.state_dict().items()
-            }
-        )
-        tensors.update(
-            {
-                f"alignment.{name}": value.detach().cpu().contiguous()
-                for name, value in self.decoder.alignment.state_dict().items()
-            }
-        )
+        tensors = {name: value.detach().cpu().contiguous() for name, value in self.state_dict().items()}
         save_file(
             tensors,
             save_directory / WEIGHTS_NAME,
@@ -218,15 +207,13 @@ class PortalModel(
         local_files_only: bool,
         token: str | bool | None,
         config: PortalConfig | dict[str, Any],
-        base_model: torch.nn.Module | None = None,
         device: str | torch.device = "cpu",
         dtype: torch.dtype | None = None,
         **hub_kwargs: Any,
-    ) -> "PortalModel":
+    ) -> PortalModel:
         """Load PorTAL tensors; ModelHubMixin handles config and repository resolution."""
         if isinstance(config, dict):
             config = PortalConfig.from_dict(config)
-        compatibility_values = {name: hub_kwargs.pop(name, None) for name in ("proxies", "resume_download")}
         path = Path(model_id)
         if path.is_dir():
             weights_path = path / WEIGHTS_NAME
@@ -241,10 +228,6 @@ class PortalModel(
                 "local_files_only": local_files_only,
                 "library_name": "portallib",
             }
-            download_parameters = inspect.signature(hf_hub_download).parameters
-            for compatibility_arg, value in compatibility_values.items():
-                if value is not None and compatibility_arg in download_parameters:
-                    download_kwargs[compatibility_arg] = value
             weights_path = Path(hf_hub_download(**download_kwargs))
         if hub_kwargs:
             names = ", ".join(sorted(hub_kwargs))
@@ -259,23 +242,11 @@ class PortalModel(
         tensors = load_file(weights_path, device=str(device))
         if "task_latents" not in tensors:
             raise ValueError("invalid PorTAL weights: missing task_latents")
-        task_latents = tensors.pop("task_latents")
-        decoder = PortalDecoder(config).to(device=device, dtype=dtype)
-        core_state = {name.removeprefix("core."): value for name, value in tensors.items() if name.startswith("core.")}
-        alignment_state = {
-            name.removeprefix("alignment."): value for name, value in tensors.items() if name.startswith("alignment.")
-        }
-        if len(core_state) + len(alignment_state) != len(tensors):
-            unexpected = sorted(
-                set(tensors)
-                - {f"core.{name}" for name in core_state}
-                - {f"alignment.{name}" for name in alignment_state}
-            )
-            raise ValueError(f"invalid canonical PorTAL weights; unexpected keys: {unexpected[:4]}")
-        decoder.core.load_state_dict(core_state, strict=True)
-        decoder.alignment.load_state_dict(alignment_state, strict=True)
-        decoder.eval()
-        return cls(config, task_latents, decoder, base_model=base_model)
+        model = cls(config, tensors["task_latents"])
+        model.load_state_dict(tensors, strict=True)
+        model.to(device=device, dtype=dtype)
+        model.eval()
+        return model
 
     def generate_model_card(self, **kwargs: Any) -> ModelCard:
         """Generate the standard Hub card with artifact-specific base model and tasks."""

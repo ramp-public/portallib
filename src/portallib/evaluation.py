@@ -2,18 +2,19 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, field
-from typing import Any, Iterator
+from typing import Any
 
 import torch
 import torch.nn.functional as F
 from torch import nn
 
+from ._architecture import GeneratedLora
 from .config import PortalConfig
 from .data import ChoiceDataset, ChoiceExample
-from .decoder import GeneratedLora
 from .model import PortalModel
 
 
@@ -145,9 +146,7 @@ class PortalInjector:
         output: torch.Tensor,
     ) -> tuple[torch.Tensor, torch.Tensor]:
         if output.device.type == "meta":
-            raise RuntimeError(
-                f"cannot inject generated factors at {key}: projection output is on the meta device"
-            )
+            raise RuntimeError(f"cannot inject generated factors at {key}: projection output is on the meta device")
         cache_key = (key, output.device, output.dtype)
         if not torch.is_grad_enabled() and cache_key in state.eval_cache:
             return state.eval_cache[cache_key]
@@ -193,7 +192,7 @@ class PortalInjector:
             handle.remove()
         self._handles.clear()
 
-    def __enter__(self) -> "PortalInjector":
+    def __enter__(self) -> PortalInjector:
         return self
 
     def __exit__(self, *_args: Any) -> None:
@@ -227,7 +226,7 @@ def collate_gold_batch(
     input_ids = torch.full((len(rows), max_length), _pad_token_id(tokenizer), dtype=torch.long)
     attention_mask = torch.zeros_like(input_ids)
     labels = torch.full_like(input_ids, -100)
-    for index, (sequence, prompt_length) in enumerate(zip(sequences, prompt_lengths)):
+    for index, (sequence, prompt_length) in enumerate(zip(sequences, prompt_lengths, strict=True)):
         length = len(sequence)
         input_ids[index, :length] = torch.tensor(sequence)
         attention_mask[index, :length] = 1
@@ -317,7 +316,7 @@ class PortalEvaluator:
         max_examples: int | None = None,
     ) -> tuple[EvaluationResult, EvaluationResult]:
         """Evaluate the raw base and its PorTAL artifact over the same rows."""
-        portal.validate_base_model(base.model_id)
+        portal.validate_base_model(base.model_id, base.revision)
         task_names = tasks or tuple(portal.config.tasks)
         return (
             self.evaluate(base, dataset, tasks=task_names, max_examples=max_examples),
@@ -336,7 +335,7 @@ class PortalEvaluator:
     ) -> EvaluationResult:
         task_names = tasks or dataset.tasks
         if portal is not None:
-            portal.validate_base_model(base.model_id)
+            portal.validate_base_model(base.model_id, base.revision)
             missing_tasks = tuple(task for task in task_names if task not in portal.config.tasks)
             if missing_tasks:
                 raise ValueError(f"requested tasks are absent from the PorTAL artifact: {missing_tasks}")
@@ -357,7 +356,7 @@ class PortalEvaluator:
                     scores, gold_nll, gold_tokens = self._score_rows(base, rows)
                 correct = sum(
                     max(range(len(row_scores)), key=row_scores.__getitem__) == row.gold_idx
-                    for row, row_scores in zip(rows, scores)
+                    for row, row_scores in zip(rows, scores, strict=True)
                 )
                 results[task] = TaskEvaluation(
                     task=task,

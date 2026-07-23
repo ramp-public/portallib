@@ -7,8 +7,14 @@ from pathlib import Path
 from typing import Any, Literal
 
 import torch
+from transformers import (
+    AutoModelForCausalLM,
+    AutoModelForMultimodalLM,
+    AutoProcessor,
+    AutoTokenizer,
+)
 
-from ._paths import model_slug, validate_dotted_path
+from ._paths import validate_dotted_path
 from .data import ChoiceDataset
 from .evaluation import PortalBase
 
@@ -81,16 +87,6 @@ def _initialize_cuda_context(device: torch.device) -> None:
 
 def load_base(recipe: BaseModelSpec, *, device: torch.device, dtype: torch.dtype) -> PortalBase:
     """Load one tokenizer/base pair and describe it as a :class:`PortalBase`."""
-    try:
-        from transformers import (
-            AutoModelForCausalLM,
-            AutoModelForMultimodalLM,
-            AutoProcessor,
-            AutoTokenizer,
-        )
-    except ImportError as exc:
-        raise ImportError("base-model loading requires `pip install portallib[training]`") from exc
-
     if recipe.loader == "multimodal_lm":
         processor = AutoProcessor.from_pretrained(recipe.model_id, revision=recipe.revision)
         tokenizer = getattr(processor, "tokenizer", None)

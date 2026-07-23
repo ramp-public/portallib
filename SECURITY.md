@@ -6,8 +6,8 @@ Security fixes are applied to the latest published minor release.
 
 | Version | Supported |
 |---|---|
-| `0.1.x` | Yes |
-| Earlier or unreleased versions | No |
+| `0.2.x` | Yes |
+| `0.1.x` and earlier | No |
 
 ## Report a vulnerability
 

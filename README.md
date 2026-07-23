@@ -11,7 +11,7 @@
 > Alpha research release [announced by Ramp Labs](https://x.com/RampLabs/status/2072381992285647280).
 > APIs and artifact schemas may evolve before the first stable release.
 
-PorTAL learns a base-agnostic task latent and a light per-base decoder that generates ordinary
+PorTAL learns a base-agnostic task latent and a light per-base alignment that generates ordinary
 per-layer LoRA weights. A task can be trained once, adapted to supported frozen base models, and
 exported as a standard Hugging Face PEFT adapter.
 
@@ -37,7 +37,7 @@ Install the inference library from PyPI:
 pip install portallib
 ```
 
-Install the optional Hugging Face model and dataset dependencies for training:
+Install the optional dataset dependency for complete training and evaluation workflows:
 
 ```bash
 pip install 'portallib[training]'
@@ -61,9 +61,8 @@ base = AutoModelForCausalLM.from_pretrained(
 portal = PortalModel.from_pretrained(
     "RampPublic/portal-qwen3-4b",
     revision="v0.1.0",
-    base_model=base,
 )
-model = portal.get_peft_model("rte")
+model = portal.get_peft_model("rte", base)
 model.save_pretrained("./portal-rte-qwen3-4b")
 ```
 
@@ -184,20 +183,16 @@ behavior comes from the installed `portallib` release and selected recipe.
 
 ## Model compatibility
 
-PorTAL supports Qwen3 and cross-family refitting to Gemma 3. Qwen3 exposes decoder layers at
-`model.layers`; Gemma 3 exposes its text decoder at
-`model.language_model.layers`. The default projection paths cover the usual query, key, value,
-attention-output, and gated-MLP linear modules used by those families.
+PorTAL supports Qwen3 and cross-family refitting to Gemma 3 and Gemma 4. Qwen3 exposes decoder
+layers at `model.layers`; Gemma 3 and Gemma 4 expose their text decoder at
+`model.language_model.layers`. Gemma 4 uses the multimodal auto-model loader and an explicit sparse
+target layout because its projection dimensions and available projections vary across layers.
 
-Other causal language-model families are expected to work when they expose uniform linear
-projections across decoder layers. Pass their exact layer and projection paths through `PortalBase`;
-PorTAL validates every configured path and dimension before training. Automatic architecture
-adapters and models with non-uniform per-layer projection dimensions are not yet part of the
-supported compatibility surface. Contributions that add exact, tested architecture mappings
-are welcome.
-
-For another model family, set its exact `BaseModelSpec.layer_path`; paths are explicit rather than
-inferred from module-name patterns, so an incompatible model fails before training.
+Other model families can use uniform or heterogeneous target layouts when their exact decoder-layer
+and projection paths are supplied through `BaseModelSpec`. Set `allow_heterogeneous_targets=True`
+to opt into sparse per-layer targets or varying projection widths. PorTAL records every resolved
+target and validates its exact path and dimensions before training, refitting, evaluation, or PEFT
+materialization. It does not infer architecture mappings from fuzzy module-name patterns.
 
 The checked-in `modules=("q", "v")` setting generates LoRA for query/value projections. Set it to
 `("q", "k", "v", "o", "gate", "up", "down")` to include the attention output and MLP
@@ -213,8 +208,9 @@ Native artifacts use the standard Hugging Face layout:
   `alignment`, with `portallib` format metadata.
 - `README.md` is the generated model card.
 
-`PortalModel` inherits `ModelHubMixin`, so `save_pretrained`, `from_pretrained`, and `push_to_hub`
-follow standard Hugging Face Hub behavior:
+`PortalModel` is a `torch.nn.Module` and inherits `ModelHubMixin`. Its `state_dict()` uses the same
+`task_latents`, `core.*`, and `alignment.*` names as the native safe artifact, while
+`save_pretrained`, `from_pretrained`, and `push_to_hub` follow standard Hugging Face Hub behavior:
 
 ```python
 portal.push_to_hub("your-namespace/portal-qwen3-4b", private=True)
@@ -226,6 +222,8 @@ dimensions, unknown schema versions, and inconsistent target declarations fail e
 ## Public API
 
 - `PortalConfig` validates artifacts and builds exact configurations from supported base models.
+- `BaseModelSpec`, `load_base`, `load_dataset`, and `runtime_device` provide the shared loading
+  surface used by the Python examples and CLI.
 - `PortalCoreTrainer` jointly trains shared latents/core and one alignment per source base using
   balanced per-task updates, EMA loss normalization, and per-base latent-gradient balancing.
 - `PortalAdapterRefitter` freezes a source artifact's latents/core and trains only a target alignment.
@@ -234,8 +232,8 @@ dimensions, unknown schema versions, and inconsistent target declarations fail e
 - `PortalEvaluator` evaluates or compares raw and adapted bases while reporting character-normalized
   multiple-choice accuracy and token-mean gold NLL.
 - `EvaluationResult.to_dict` returns the canonical JSON-ready evaluation representation.
-- `PortalDecoder` combines a canonical core and one base-specific alignment to generate LoRA factors.
-- `PortalModel` loads, saves, publishes, materializes, and exports trained artifacts.
+- `PortalModel` is the PyTorch task-latent/core/alignment module and loads, saves, publishes,
+  materializes, and exports trained artifacts.
 - `ChoiceDataset` loads and saves the normalized local/Hub task schema and supports explicit Hub upload.
 - `collate_gold_batch` provides the causal-LM batch format used by the training APIs.
 
@@ -248,6 +246,8 @@ uv run python -m build
 ```
 
 PorTAL is licensed under Apache-2.0.
+
+For questions or feedback, reach Ben Geist on X at [@bgeist](https://x.com/bgeist).
 
 ## Citation
 

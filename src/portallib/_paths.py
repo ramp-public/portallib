@@ -3,7 +3,7 @@
 
 def model_slug(model_id: str) -> str:
     """Return a stable filesystem name for a Hub model ID."""
-    return model_id.rsplit("/", 1)[-1].lower().replace(".", "-")
+    return model_id.strip("/").lower().replace("/", "--").replace(".", "-")
 
 
 def validate_dotted_path(path: str, *, name: str) -> None:

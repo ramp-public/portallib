@@ -18,12 +18,14 @@ from pathlib import Path
 import torch
 
 from portallib import (
+    BaseModelSpec,
     PortalAdapterRefitter,
     PortalModel,
     PortalTrainingConfig,
+    load_base,
+    load_dataset,
+    runtime_device,
 )
-from portallib.runtime import BaseModelSpec, load_base, load_dataset, runtime_device
-
 
 # ---------------------------------------------------------------------------
 # Recipe: trained PorTAL artifact + raw Hugging Face target -> refitted artifact.
