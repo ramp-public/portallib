@@ -8,10 +8,7 @@ All notable changes to `portallib` are documented here.
   adapters remain active and differentiable when decoder layers are disk-offloaded.
 - Support explicit sparse target layouts and shape-grouped base alignments for models whose
   projection dimensions vary across decoder layers.
-- Add explicit multimodal-model loading and pinned Gemma 4 E2B smoke, 500-example, and
-  1,000-example refit recipes.
-- Add a reproducible Gemma 4 release gate against converged per-task full-text-decoder rank-16
-  LoRA baselines.
+- Add explicit multimodal-model loading for text-only execution through multimodal wrappers.
 
 ## 0.2.0 - 2026-07-16
 

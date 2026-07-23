@@ -117,17 +117,6 @@ the refit 4B-only—the 1.7B and 4B source artifacts contain identical jointly t
 canonical core weights. The default target is Qwen3-8B with at most 1,000 training examples per task.
 The adjacent Gemma 3 recipe uses the same shared components and its exact text-decoder layer path.
 
-The Gemma 4 E2B recipe exercises sparse global/local-attention targets whose q/v projection widths
-vary by layer. It reuses the same frozen core and task latents while fitting only shape-grouped
-target alignment parameters:
-
-```bash
-portallib refit --config examples/configs/refit_gemma4_e2b_1000.toml
-```
-
-See [`docs/gemma4_refit.md`](docs/gemma4_refit.md) for its exact topology, recipe, and validation
-result.
-
 [`examples/evaluate_example.py`](https://github.com/ramp-public/portallib/blob/main/examples/evaluate_example.py) loads a trained PorTAL artifact and
 its matching raw base, then reports the base floor, adapted per-task metrics, macro metrics, and
 accuracy lift:

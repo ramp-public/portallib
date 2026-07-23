@@ -152,7 +152,6 @@ class BaseModelRecipe(_StrictModel):
 
 class _TrainingRecipe(_StrictModel):
     refit_max_examples: PositiveInt | None = None
-    refit_nested_prefix: bool | None = None
     eval_max_examples: Limit = None
     eval_batch_size: PositiveInt | None = None
     epochs: PositiveInt | None = None
