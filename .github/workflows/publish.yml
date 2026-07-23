@@ -26,6 +26,10 @@ jobs:
           test "$RELEASE_TAG" = "v$PACKAGE_VERSION"
       - run: uv build
       - run: uvx twine check dist/*
+      - name: Verify the built wheel
+        run: |
+          WHEEL="$(find dist -name '*.whl' -print -quit)"
+          uv run --isolated --no-project --with "$WHEEL" portallib --version
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: python-distributions

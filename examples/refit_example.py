@@ -18,12 +18,14 @@ from pathlib import Path
 import torch
 
 from portallib import (
+    BaseModelSpec,
     PortalAdapterRefitter,
     PortalModel,
     PortalTrainingConfig,
+    load_base,
+    load_dataset,
+    runtime_device,
 )
-from portallib.runtime import BaseModelSpec, load_base, load_dataset, runtime_device
-
 
 # ---------------------------------------------------------------------------
 # Recipe: trained PorTAL artifact + raw Hugging Face target -> refitted artifact.
@@ -31,7 +33,7 @@ from portallib.runtime import BaseModelSpec, load_base, load_dataset, runtime_de
 
 # Both source artifacts contain the same jointly trained task latents and canonical core.
 SOURCE_ARTIFACT = "RampPublic/portal-qwen3-4b"
-SOURCE_ARTIFACT_REVISION: str | None = "v0.1.0"
+SOURCE_ARTIFACT_REVISION: str | None = "v0.2.0"
 TARGET_BASE = BaseModelSpec(
     "Qwen/Qwen3-8B",
     "b968826d9c46dd6066d109eabc6255188de91218",

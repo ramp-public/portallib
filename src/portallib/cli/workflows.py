@@ -11,9 +11,9 @@ import torch
 from ..data import ChoiceDataset
 from ..evaluation import PortalEvaluator
 from ..model import PortalModel
-from .recipes import CommonRecipe, EvaluateRecipe, RefitRecipe, TrainRecipe
-from ..runtime import load_base, load_dataset, model_slug, runtime_device
+from ..runtime import load_base, load_dataset, runtime_device
 from ..training import EpochMetrics, PortalAdapterRefitter, PortalCoreTrainer, PortalTrainingConfig
+from .recipes import CommonRecipe, EvaluateRecipe, RefitRecipe, TrainRecipe
 
 
 def _emit(value: dict[str, Any], *, stream: Any | None = None) -> None:
@@ -56,12 +56,9 @@ def _run_train(recipe: TrainRecipe) -> None:
     result = PortalCoreTrainer(bases, dataset, tasks=tasks, config=config).train(
         on_epoch=lambda epoch: _emit(_epoch_event("train", epoch))
     )
-    recipe.output_dir.mkdir(parents=True, exist_ok=True)
-    outputs: dict[str, str] = {}
-    for base in recipe.bases:
-        destination = recipe.output_dir / f"source-{model_slug(base.model_id)}"
-        result.artifacts[base.model_id].save_pretrained(destination)
-        outputs[base.model_id] = str(destination)
+    outputs = {
+        model_id: str(destination) for model_id, destination in result.save_pretrained(recipe.output_dir).items()
+    }
     _write_result(
         recipe,
         {
@@ -105,7 +102,7 @@ def _run_refit(recipe: RefitRecipe) -> None:
 def _run_evaluate(recipe: EvaluateRecipe) -> None:
     dataset, device, dtype = _load_runtime(recipe)
     portal = PortalModel.from_pretrained(recipe.artifact, revision=recipe.artifact_revision)
-    portal.validate_base_model(recipe.base.model_id)
+    portal.validate_base_model(recipe.base.model_id, recipe.base.revision)
     tasks = recipe.tasks or tuple(portal.config.tasks)
     base = load_base(recipe.base.to_runtime(), device=device, dtype=dtype)
     evaluator = PortalEvaluator(max_prompt=recipe.max_prompt, batch_size=recipe.batch_size)

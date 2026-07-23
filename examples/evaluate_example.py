@@ -13,16 +13,21 @@ from __future__ import annotations
 
 import json
 
-from portallib import PortalEvaluator, PortalModel
-from portallib.runtime import BaseModelSpec, load_base, load_dataset, runtime_device
-
+from portallib import (
+    BaseModelSpec,
+    PortalEvaluator,
+    PortalModel,
+    load_base,
+    load_dataset,
+    runtime_device,
+)
 
 # ---------------------------------------------------------------------------
 # Recipe: trained PorTAL artifact + its raw base -> held-out evaluation.
 # ---------------------------------------------------------------------------
 
 PORTAL_ARTIFACT = "RampPublic/portal-qwen3-8b"
-PORTAL_ARTIFACT_REVISION: str | None = "v0.1.0"
+PORTAL_ARTIFACT_REVISION: str | None = "v0.2.0"
 BASE = BaseModelSpec(
     "Qwen/Qwen3-8B",
     "b968826d9c46dd6066d109eabc6255188de91218",
@@ -45,7 +50,7 @@ EVAL_BATCH_SIZE = 8
 def main() -> None:
     dataset = load_dataset(DATASET, revision=DATASET_REVISION)
     portal = PortalModel.from_pretrained(PORTAL_ARTIFACT, revision=PORTAL_ARTIFACT_REVISION)
-    portal.validate_base_model(BASE.model_id)
+    portal.validate_base_model(BASE.model_id, BASE.revision)
 
     device, dtype = runtime_device()
     base = load_base(BASE, device=device, dtype=dtype)

@@ -17,9 +17,14 @@ from pathlib import Path
 
 import torch
 
-from portallib import PortalCoreTrainer, PortalTrainingConfig
-from portallib.runtime import BaseModelSpec, load_base, load_dataset, model_slug, runtime_device
-
+from portallib import (
+    BaseModelSpec,
+    PortalCoreTrainer,
+    PortalTrainingConfig,
+    load_base,
+    load_dataset,
+    runtime_device,
+)
 
 # ---------------------------------------------------------------------------
 # Recipe: raw Hugging Face bases -> trained PorTAL source artifacts.
@@ -79,12 +84,7 @@ def main() -> None:
     bases = [load_base(base, device=device, dtype=dtype) for base in SOURCE_BASES]
     result = PortalCoreTrainer(bases, dataset, tasks=tasks, config=config).train(on_epoch=print_epoch)
 
-    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-    outputs: dict[str, str] = {}
-    for base in SOURCE_BASES:
-        destination = OUTPUT_DIR / f"source-{model_slug(base.model_id)}"
-        result.artifacts[base.model_id].save_pretrained(destination)
-        outputs[base.model_id] = str(destination)
+    outputs = {model_id: str(destination) for model_id, destination in result.save_pretrained(OUTPUT_DIR).items()}
 
     print(
         json.dumps(

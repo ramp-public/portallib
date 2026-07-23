@@ -4,24 +4,62 @@ from __future__ import annotations
 
 import json
 from collections.abc import Iterator
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
-from ._paths import exact_module_path, validate_dotted_path
+from ._paths import validate_dotted_path
+from ._topology import (
+    PortalProjectionTarget,
+    alignment_group_dimensions,
+    build_projection_targets,
+    discover_projection_topology,
+    require_supported_topology,
+    resolve_module_paths,
+)
 
-
-DEFAULT_MODULE_PATHS = {
-    "q": "self_attn.q_proj",
-    "k": "self_attn.k_proj",
-    "v": "self_attn.v_proj",
-    "o": "self_attn.o_proj",
-    "gate": "mlp.gate_proj",
-    "up": "mlp.up_proj",
-    "down": "mlp.down_proj",
-}
-SUPPORTED_MODULES = frozenset(DEFAULT_MODULE_PATHS)
 _ARCHITECTURE_FIELDS = ("modules", "rank", "alpha", "d_z", "d_layer", "hidden", "d_core")
+
+
+def _validate_common(config: PortalConfig) -> None:
+    if config.format_version != 1:
+        raise ValueError("PorTAL artifacts require format_version=1")
+    if config.library_name != "portallib":
+        raise ValueError(f"unsupported artifact library: {config.library_name!r}")
+    if config.architecture != "canonical":
+        raise ValueError("PorTAL artifacts support architecture='canonical' only")
+    if config.task_type != "CAUSAL_LM":
+        raise ValueError("PorTAL artifacts support task_type='CAUSAL_LM' only")
+    if not config.base_model_name_or_path.strip():
+        raise ValueError("base_model_name_or_path must not be empty")
+    if not config.tasks or len(set(config.tasks)) != len(config.tasks):
+        raise ValueError("tasks must be a non-empty list of unique names")
+    if any(not isinstance(task, str) or not task.strip() for task in config.tasks):
+        raise ValueError("task names must be non-empty strings")
+    positive_fields = {
+        "rank": config.rank,
+        "alpha": config.alpha,
+        "n_layers": config.n_layers,
+        "d_z": config.d_z,
+        "d_layer": config.d_layer,
+        "hidden": config.hidden,
+        "d_core": config.d_core,
+    }
+    invalid = [name for name, value in positive_fields.items() if not isinstance(value, int) or value <= 0]
+    if invalid:
+        raise ValueError(f"configuration values must be positive integers: {', '.join(invalid)}")
+
+
+def _validate_projection_targets(config: PortalConfig) -> None:
+    targets = config.projection_targets
+    if not targets:
+        raise ValueError("projection_targets must be non-empty")
+    keys = [target.key for target in targets]
+    if len(keys) != len(set(keys)):
+        raise ValueError("projection_targets contains duplicate layer/module targets")
+    if any(target.layer_index >= config.n_layers for target in targets):
+        raise ValueError("projection target layer index exceeds n_layers")
+    alignment_group_dimensions(targets)
 
 
 @dataclass(frozen=True)
@@ -31,70 +69,24 @@ class PortalConfig:
     base_model_name_or_path: str
     tasks: list[str]
     n_layers: int
-    in_dims: dict[str, int]
-    out_dims: dict[str, int]
+    projection_targets: tuple[PortalProjectionTarget, ...]
     rank: int = 8
     alpha: int = 16
     d_z: int = 256
     d_layer: int = 32
     hidden: int = 512
     d_core: int = 1024
-    target_modules: list[str] = field(default_factory=lambda: ["q_proj", "v_proj"])
     layer_path: str = "model.layers"
-    module_paths: dict[str, str] | None = None
     task_type: str = "CAUSAL_LM"
     architecture: str = "canonical"
     base_model_revision: str | None = None
-    schema_version: int = 1
+    format_version: int = 1
     library_name: str = "portallib"
 
     def __post_init__(self) -> None:
-        if self.library_name != "portallib":
-            raise ValueError(f"unsupported artifact library: {self.library_name!r}")
-        if self.schema_version != 1:
-            raise ValueError(f"unsupported PorTAL schema version: {self.schema_version}")
-        if self.architecture != "canonical":
-            raise ValueError("portallib v1 supports architecture='canonical' only")
-        if self.task_type != "CAUSAL_LM":
-            raise ValueError("portallib v1 supports task_type='CAUSAL_LM' only")
-        if not self.base_model_name_or_path.strip():
-            raise ValueError("base_model_name_or_path must not be empty")
-        if not self.tasks or len(set(self.tasks)) != len(self.tasks):
-            raise ValueError("tasks must be a non-empty list of unique names")
-        if any(not isinstance(task, str) or not task.strip() for task in self.tasks):
-            raise ValueError("task names must be non-empty strings")
-        positive_fields = {
-            "rank": self.rank,
-            "alpha": self.alpha,
-            "n_layers": self.n_layers,
-            "d_z": self.d_z,
-            "d_layer": self.d_layer,
-            "hidden": self.hidden,
-            "d_core": self.d_core,
-        }
-        invalid = [name for name, value in positive_fields.items() if not isinstance(value, int) or value <= 0]
-        if invalid:
-            raise ValueError(f"configuration values must be positive integers: {', '.join(invalid)}")
-        modules = set(self.in_dims)
-        if modules != set(self.out_dims) or not modules:
-            raise ValueError("in_dims and out_dims must describe the same non-empty module set")
-        unknown = sorted(modules - SUPPORTED_MODULES)
-        if unknown:
-            raise ValueError(f"unsupported module names: {unknown}")
-        if self.module_paths is None:
-            object.__setattr__(self, "module_paths", {name: DEFAULT_MODULE_PATHS[name] for name in self.in_dims})
-        if set(self.module_paths) != modules:
-            raise ValueError("module_paths must describe exactly the configured modules")
+        _validate_common(self)
         validate_dotted_path(self.layer_path, name="layer_path")
-        for path in self.module_paths.values():
-            validate_dotted_path(path, name="module_paths values")
-        if any(not isinstance(dim, int) or dim <= 0 for dim in (*self.in_dims.values(), *self.out_dims.values())):
-            raise ValueError("all projection dimensions must be positive integers")
-        expected_targets = {path.rsplit(".", 1)[-1] for path in self.module_paths.values()}
-        if len(self.target_modules) != len(set(self.target_modules)) or set(self.target_modules) != expected_targets:
-            raise ValueError(
-                f"target_modules must correspond exactly to module_paths; expected {sorted(expected_targets)}"
-            )
+        _validate_projection_targets(self)
 
     @property
     def scaling(self) -> float:
@@ -102,7 +94,22 @@ class PortalConfig:
 
     @property
     def modules(self) -> tuple[str, ...]:
-        return tuple(self.in_dims)
+        return tuple(dict.fromkeys(target.module_name for target in self.projection_targets))
+
+    @property
+    def input_groups(self) -> dict[str, int]:
+        """Return stable input-alignment groups and their projection widths."""
+        return self.alignment_groups[0]
+
+    @property
+    def output_groups(self) -> dict[str, int]:
+        """Return stable output-alignment groups and their projection widths."""
+        return self.alignment_groups[1]
+
+    @property
+    def alignment_groups(self) -> tuple[dict[str, int], dict[str, int]]:
+        """Return input and output alignment groups resolved from the exact targets."""
+        return alignment_group_dimensions(self.projection_targets)
 
     def shared_signature(self) -> tuple[Any, ...]:
         """Return fields that must match when a canonical core is shared across bases."""
@@ -114,9 +121,13 @@ class PortalConfig:
 
     def targets(self) -> Iterator[tuple[int, str, str]]:
         """Yield every configured target as ``(layer, short name, exact path)``."""
-        for layer_index in range(self.n_layers):
-            for short_name, module_path in self.module_paths.items():
-                yield layer_index, short_name, exact_module_path(self.layer_path, layer_index, module_path)
+        for target, exact_path in self.resolved_targets():
+            yield (*target.key, exact_path)
+
+    def resolved_targets(self) -> Iterator[tuple[PortalProjectionTarget, str]]:
+        """Yield configured targets with their exact base-model paths."""
+        for target in self.projection_targets:
+            yield target, target.exact_path(self.layer_path)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -125,13 +136,18 @@ class PortalConfig:
         Path(path).write_text(json.dumps(self.to_dict(), indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
     @classmethod
-    def from_dict(cls, value: dict[str, Any]) -> "PortalConfig":
+    def from_dict(cls, value: dict[str, Any]) -> PortalConfig:
         if not isinstance(value, dict):
             raise TypeError("PorTAL configuration must be a JSON object")
-        return cls(**value)
+        parsed = dict(value)
+        if parsed.get("projection_targets") is not None:
+            parsed["projection_targets"] = tuple(
+                PortalProjectionTarget.from_dict(target) for target in parsed["projection_targets"]
+            )
+        return cls(**parsed)
 
     @classmethod
-    def from_json(cls, path: str | Path) -> "PortalConfig":
+    def from_json(cls, path: str | Path) -> PortalConfig:
         return cls.from_dict(json.loads(Path(path).read_text(encoding="utf-8")))
 
     @classmethod
@@ -144,47 +160,33 @@ class PortalConfig:
         modules: tuple[str, ...] = ("q", "v"),
         layer_path: str = "model.layers",
         module_paths: dict[str, str] | None = None,
+        allow_heterogeneous_targets: bool = False,
         **kwargs: Any,
-    ) -> "PortalConfig":
+    ) -> PortalConfig:
         """Build a config by resolving every requested projection path exactly."""
-        if not modules or len(set(modules)) != len(modules):
-            raise ValueError("modules must be a non-empty tuple of unique short names")
-        unknown = sorted(set(modules) - SUPPORTED_MODULES)
-        if unknown:
-            raise ValueError(f"unsupported module names: {unknown}")
-        paths = module_paths or {name: DEFAULT_MODULE_PATHS[name] for name in modules}
-        if set(paths) != set(modules):
-            raise ValueError("module_paths must describe exactly the requested modules")
-        try:
-            layers = model.get_submodule(layer_path)
-            n_layers = len(layers)
-        except (AttributeError, KeyError, TypeError) as exc:
-            raise ValueError(f"base model has no indexable exact layer path {layer_path!r}") from exc
-        if n_layers == 0:
-            raise ValueError("base model has no decoder layers")
-        in_dims: dict[str, int] = {}
-        out_dims: dict[str, int] = {}
-        for short_name, relative_path in paths.items():
-            dimensions: set[tuple[int, int]] = set()
-            for layer_index in range(n_layers):
-                exact_path = exact_module_path(layer_path, layer_index, relative_path)
-                try:
-                    projection = model.get_submodule(exact_path)
-                    dimensions.add((projection.in_features, projection.out_features))
-                except (AttributeError, KeyError) as exc:
-                    raise ValueError(f"base model has no exact projection path {exact_path!r}") from exc
-            if len(dimensions) != 1:
-                raise ValueError(f"projection dimensions vary across layers for {short_name!r}: {sorted(dimensions)}")
-            in_dims[short_name], out_dims[short_name] = dimensions.pop()
+        paths = resolve_module_paths(modules, module_paths)
+        discovery = discover_projection_topology(
+            model,
+            modules=modules,
+            layer_path=layer_path,
+            module_paths=paths,
+        )
+        require_supported_topology(
+            discovery,
+            layer_path=layer_path,
+            module_paths=paths,
+            allow_heterogeneous_targets=allow_heterogeneous_targets,
+        )
+        projection_targets = build_projection_targets(
+            discovery,
+            modules=modules,
+        )
         model_name = base_model_name_or_path or getattr(getattr(model, "config", None), "_name_or_path", "")
         return cls(
             base_model_name_or_path=model_name,
             tasks=tasks,
-            n_layers=n_layers,
-            in_dims=in_dims,
-            out_dims=out_dims,
-            target_modules=[path.rsplit(".", 1)[-1] for path in paths.values()],
+            n_layers=discovery.n_layers,
+            projection_targets=tuple(projection_targets),
             layer_path=layer_path,
-            module_paths=paths,
             **kwargs,
         )

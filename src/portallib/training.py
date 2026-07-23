@@ -5,17 +5,18 @@ from __future__ import annotations
 import copy
 import json
 import random
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Literal
+from typing import Any, Literal
 
 import torch
 from torch import nn
 
+from ._architecture import PortalAlignment, PortalCore
 from ._paths import model_slug
 from .config import _ARCHITECTURE_FIELDS, PortalConfig
 from .data import ChoiceDataset, ChoiceExample
-from .decoder import PortalAlignment, PortalCore, PortalDecoder
 from .evaluation import EvaluationResult, PortalBase, PortalEvaluator, PortalInjector, collate_gold_batch
 from .model import PortalModel
 
@@ -32,9 +33,9 @@ class PortalTrainingConfig:
     hidden: int = 512
     d_core: int = 1024
     source_max_examples: int | None = 2000
-    source_resample_each_epoch: bool = True
+    source_resample_each_epoch: bool = False
     source_steps_per_epoch: int | None = None
-    refit_max_examples: int = 2000
+    refit_max_examples: int = 1000
     eval_max_examples: int | None = 1000
     eval_batch_size: int = 8
     epochs: int = 5
@@ -55,7 +56,7 @@ class PortalTrainingConfig:
     checkpoint_dir: Path | None = None
 
     @classmethod
-    def from_portal_config(cls, config: PortalConfig, **training_overrides: Any) -> "PortalTrainingConfig":
+    def from_portal_config(cls, config: PortalConfig, **training_overrides: Any) -> PortalTrainingConfig:
         """Reuse an artifact's canonical architecture with caller-selected optimization settings."""
         architecture = config.architecture_kwargs()
         conflicting = architecture.keys() & training_overrides.keys()
@@ -119,6 +120,16 @@ class CoreTrainingResult:
     best_loss_epoch: int
     diagnostics: dict[str, Any] = field(default_factory=dict)
 
+    def save_pretrained(self, output_dir: str | Path) -> dict[str, Path]:
+        """Save every base-specific source artifact beneath one output directory."""
+        root = Path(output_dir)
+        destinations = {model_id: root / f"source-{model_slug(model_id)}" for model_id in self.artifacts}
+        if len(destinations.values()) != len(set(destinations.values())):
+            raise ValueError("source model IDs resolve to duplicate artifact directories")
+        for model_id, destination in destinations.items():
+            self.artifacts[model_id].save_pretrained(destination)
+        return destinations
+
 
 @dataclass(frozen=True)
 class RefitResult:
@@ -137,6 +148,7 @@ def _model_config(base: PortalBase, tasks: tuple[str, ...], recipe: PortalTraini
         base_model_revision=base.revision,
         layer_path=base.layer_path,
         module_paths=base.module_paths,
+        allow_heterogeneous_targets=base.allow_heterogeneous_targets,
         **recipe.architecture_kwargs(),
     )
 
@@ -173,11 +185,11 @@ def _artifact(
     core_state: dict[str, torch.Tensor],
     alignment_state: dict[str, torch.Tensor],
 ) -> PortalModel:
-    decoder = PortalDecoder(config)
-    decoder.core.load_state_dict(core_state, strict=True)
-    decoder.alignment.load_state_dict(alignment_state, strict=True)
-    decoder.eval()
-    return PortalModel(config, task_latents.detach().cpu().clone(), decoder)
+    artifact = PortalModel(config, task_latents.detach().cpu().clone())
+    artifact.core.load_state_dict(core_state, strict=True)
+    artifact.alignment.load_state_dict(alignment_state, strict=True)
+    artifact.eval()
+    return artifact
 
 
 def _macro(evaluations: dict[str, EvaluationResult]) -> tuple[float, float]:
@@ -216,7 +228,7 @@ def _equalize_gradients(gradients: list[torch.Tensor]) -> torch.Tensor:
         raise ValueError("at least one gradient is required")
     norms = [gradient.norm() for gradient in gradients]
     average = torch.stack(norms).mean()
-    return sum(gradient / (norm + 1e-8) * average for gradient, norm in zip(gradients, norms))
+    return sum(gradient / (norm + 1e-8) * average for gradient, norm in zip(gradients, norms, strict=True))
 
 
 def _gradient_norm(parameters: list[nn.Parameter]) -> float:
@@ -428,8 +440,12 @@ class PortalCoreTrainer:
 
     def _portal(self, base: PortalBase) -> PortalModel:
         config = self.configs[base.model_id]
-        decoder = PortalDecoder(config, core=self.core, alignment=self.alignments[base.model_id])
-        return PortalModel(config, self.task_latents, decoder)
+        return PortalModel(
+            config,
+            self.task_latents,
+            core=self.core,
+            alignment=self.alignments[base.model_id],
+        )
 
     def _evaluate(self, epoch: int) -> EpochMetrics:
         evaluations = {
@@ -476,13 +492,13 @@ class PortalCoreTrainer:
         rounds = self.recipe.source_steps_per_epoch or max(
             (size + self.recipe.batch_size - 1) // self.recipe.batch_size for size in task_sizes.values()
         )
-        decoder_parameters = list(self.core.parameters()) + [
+        generator_parameters = list(self.core.parameters()) + [
             parameter for alignment in self.alignments.values() for parameter in alignment.parameters()
         ]
         optimizer = torch.optim.AdamW(
             [
                 {"params": [self.task_latents], "lr": self.recipe.latent_learning_rate},
-                {"params": decoder_parameters, "lr": self.recipe.learning_rate},
+                {"params": generator_parameters, "lr": self.recipe.learning_rate},
             ],
             weight_decay=self.recipe.weight_decay,
         )
@@ -499,7 +515,7 @@ class PortalCoreTrainer:
             patience=self.recipe.early_stopping_patience,
             on_epoch=on_epoch,
         )
-        first_decoder_grad_norm: float | None = None
+        first_generator_grad_norm: float | None = None
         try:
             initial = self._evaluate(0)
             tracker.record_initial(initial)
@@ -524,7 +540,7 @@ class PortalCoreTrainer:
                     base.model.train(self.recipe.gradient_checkpointing)
                 batch_cycle = _BatchCycle(
                     batches,
-                    lambda unit, pass_index: (
+                    lambda unit, pass_index, epoch=epoch: (
                         self.recipe.seed * 1_000_003 + epoch * 10_007 + unit[0] * 503 + unit[2] * 37 + pass_index
                     ),
                 )
@@ -533,7 +549,7 @@ class PortalCoreTrainer:
                     optimizer.zero_grad(set_to_none=True)
                     base_z_grads: list[torch.Tensor] = []
                     for base_index, base in enumerate(self.bases):
-                        for task_index, task in enumerate(self.tasks):
+                        for task_index, _task in enumerate(self.tasks):
                             batch = batch_cycle.draw((base_index, base.model_id, task_index), task_index)
                             input_ids, attention_mask, labels = collate_gold_batch(
                                 base.tokenizer,
@@ -558,16 +574,16 @@ class PortalCoreTrainer:
                             self.task_latents.grad.zero_()
                     if base_z_grads:
                         self.task_latents.grad = _equalize_gradients(base_z_grads)
-                    decoder_grad_norm = _finish_optimizer_step(
+                    generator_grad_norm = _finish_optimizer_step(
                         optimizer,
-                        checked_parameters=decoder_parameters,
-                        clipped_parameters=[self.task_latents, *decoder_parameters],
+                        checked_parameters=generator_parameters,
+                        clipped_parameters=[self.task_latents, *generator_parameters],
                         grad_clip=self.recipe.grad_clip,
                         scheduler=scheduler,
                         missing_gradient_message="canonical core/alignment received no finite gradient",
                     )
-                    if first_decoder_grad_norm is None:
-                        first_decoder_grad_norm = decoder_grad_norm
+                    if first_generator_grad_norm is None:
+                        first_generator_grad_norm = generator_grad_norm
                 metrics = self._evaluate(epoch)
                 snapshot = self._snapshot()
                 self._checkpoint(epoch, metrics, snapshot)
@@ -605,7 +621,7 @@ class PortalCoreTrainer:
                     tracker.selected_metrics,
                     self.recipe.task_regression_threshold,
                 ),
-                "first_decoder_grad_norm": first_decoder_grad_norm,
+                "first_generator_grad_norm": first_generator_grad_norm,
             },
         )
 
@@ -634,7 +650,7 @@ class PortalAdapterRefitter:
             raise ValueError("target refit architecture must match the source canonical core")
         self.device = target.device
         self.task_latents = source.task_latents.detach().clone().to(self.device)
-        self.core = copy.deepcopy(source.decoder.core).to(self.device).eval()
+        self.core = copy.deepcopy(source.core).to(self.device).eval()
         self.alignment = PortalAlignment(self.config, zero_output=True).to(self.device)
         self.task_latents.requires_grad_(False)
         for parameter in self.core.parameters():
@@ -644,7 +660,8 @@ class PortalAdapterRefitter:
         return PortalModel(
             self.config,
             self.task_latents,
-            PortalDecoder(self.config, core=self.core, alignment=self.alignment),
+            core=self.core,
+            alignment=self.alignment,
         )
 
     def _evaluate(self, epoch: int) -> EpochMetrics:

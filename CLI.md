@@ -23,10 +23,13 @@ Pass `-` to read the same TOML recipe from standard input:
 generate-recipe | portallib evaluate --config -
 ```
 
-Every recipe declares `schema_version = 1` and a `kind` matching the command that executes it.
+Every recipe declares `recipe_version = 1` and a `kind` matching the command that executes it.
 `validate` checks the complete recipe structure without loading a dataset, model, or artifact.
 Unknown keys, duplicate tasks or source model IDs, invalid types, and command/recipe mismatches are
 errors.
+
+`recipe_version` versions this TOML automation contract. It is independent from the
+`PortalConfig.format_version` stored in native artifacts, which versions the artifact format.
 
 The checked-in starting points are:
 
@@ -61,7 +64,7 @@ All recipes support:
 
 | Field | Meaning |
 |---|---|
-| `schema_version` | Must be `1` |
+| `recipe_version` | Must be `1` |
 | `kind` | `train`, `refit`, or `evaluate` |
 | `result_path` | Optional final JSON path, resolved relative to the recipe |
 | `tasks` | Optional ordered task subset for training or evaluation |
@@ -100,6 +103,8 @@ table. Each table accepts:
 | `dtype` | no | Per-base dtype override |
 | `device_map` | no | Hugging Face device-map string or inline table |
 | `attn_implementation` | no | Hugging Face attention implementation |
+| `loader` | no | `causal_lm` (default) or `multimodal_lm` |
+| `allow_heterogeneous_targets` | no | Opt into exact sparse targets and per-layer projection widths |
 
 When `device_map` is present, the loader preserves Hugging Face placement and does not apply a bulk
 device move. Exact layer and projection paths are passed to `PortalBase` and validated before

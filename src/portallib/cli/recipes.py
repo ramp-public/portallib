@@ -21,7 +21,7 @@ from pydantic import (
     model_validator,
 )
 
-from ..config import SUPPORTED_MODULES
+from .._topology import validate_modules
 from ..runtime import BaseModelSpec
 from ..training import PortalTrainingConfig
 
@@ -68,10 +68,7 @@ def _unique_nonempty(value: tuple[str, ...]) -> tuple[str, ...]:
 
 
 def _supported_modules(value: tuple[str, ...]) -> tuple[str, ...]:
-    unknown = sorted(set(value) - SUPPORTED_MODULES)
-    if unknown:
-        raise ValueError(f"unsupported module names: {', '.join(unknown)}")
-    return value
+    return validate_modules(value)
 
 
 NonEmptyStr = Annotated[str, StringConstraints(min_length=1), AfterValidator(_non_blank)]
@@ -95,7 +92,7 @@ class DatasetRecipe(_StrictModel):
     revision: NonEmptyStr | None = None
 
     @model_validator(mode="after")
-    def validate_source(self) -> "DatasetRecipe":
+    def validate_source(self) -> DatasetRecipe:
         if (self.repo_id is None) == (self.path is None):
             raise ValueError("define exactly one of repo_id or path")
         if self.path is not None and self.revision is not None:
@@ -130,6 +127,8 @@ class BaseModelRecipe(_StrictModel):
     dtype: DTypeName | None = None
     device_map: NonEmptyStr | dict[NonEmptyStr, int | NonEmptyStr] | None = None
     attn_implementation: NonEmptyStr | None = None
+    loader: Literal["causal_lm", "multimodal_lm"] = "causal_lm"
+    allow_heterogeneous_targets: bool = False
 
     @field_validator("dtype", mode="before")
     @classmethod
@@ -137,7 +136,7 @@ class BaseModelRecipe(_StrictModel):
         return None if value == "auto" else value
 
     @model_validator(mode="after")
-    def validate_runtime_recipe(self) -> "BaseModelRecipe":
+    def validate_runtime_recipe(self) -> BaseModelRecipe:
         try:
             self.to_runtime()
         except ValueError as exc:
@@ -168,7 +167,7 @@ class _TrainingRecipe(_StrictModel):
     task_regression_threshold: float | None = None
 
     @model_validator(mode="after")
-    def validate_training_config(self) -> "_TrainingRecipe":
+    def validate_training_config(self) -> _TrainingRecipe:
         try:
             PortalTrainingConfig(**self.overrides())
         except (TypeError, ValueError) as exc:
@@ -198,7 +197,7 @@ class RefitSettings(_TrainingRecipe):
 
 
 class CommonRecipe(_StrictModel):
-    schema_version: Literal[1]
+    recipe_version: Literal[1]
     kind: Literal["train", "refit", "evaluate"]
     dataset: DatasetRecipe
     runtime: RuntimeRecipe = Field(default_factory=RuntimeRecipe)
@@ -223,7 +222,7 @@ class TrainRecipe(_OutputRecipe):
         return value
 
     @model_validator(mode="after")
-    def validate_unique_bases(self) -> "TrainRecipe":
+    def validate_unique_bases(self) -> TrainRecipe:
         model_ids = [base.model_id for base in self.bases]
         if len(model_ids) != len(set(model_ids)):
             raise ValueError("bases model_id values must be unique")

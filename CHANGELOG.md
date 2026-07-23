@@ -2,12 +2,7 @@
 
 All notable changes to `portallib` are documented here.
 
-## Unreleased
-
-- Place generated LoRA factors from each target projection's live output device and dtype so
-  adapters remain active and differentiable when decoder layers are disk-offloaded.
-
-## 0.2.0 - 2026-07-16
+## 0.2.0 - 2026-07-23
 
 - Add the `portallib train`, `refit`, `evaluate`, and `validate` commands with strict, versioned
   TOML recipes.
@@ -17,6 +12,24 @@ All notable changes to `portallib` are documented here.
   local paths relative to the recipe location or current working directory respectively.
 - Share the same Hugging Face loading helpers across the CLI and editable Python examples.
 - Add pinned CLI recipes for source training, target refitting, and evaluation.
+- Make `PortalModel` a standard `torch.nn.Module` whose state dictionary matches the native safe
+  artifact, and require callers to pass the base explicitly when materializing a PEFT model.
+- Replace the parallel uniform/heterogeneous artifact encodings with one `format_version=1`
+  representation containing explicit projection targets for every supported base.
+- Republish all five native artifacts at `v0.2.0` in the unified format without changing any
+  learned tensor values.
+- Expose the shared base-model and dataset loading helpers through the top-level Python API.
+- Use `recipe_version` for the TOML contract independently from native artifact format versions.
+- Default to fixed source subsets and 1,000-example-per-task refitting.
+- Place generated LoRA factors from each target projection's live output device and dtype so
+  adapters remain active and differentiable when decoder layers are disk-offloaded.
+- Support explicit sparse projection targets and shape-grouped base alignments for models whose
+  projection dimensions vary across decoder layers.
+- Require Transformers 5 directly and add explicit multimodal-model loading for text-only execution
+  through multimodal wrappers.
+- Validate exact recorded base-model revisions during evaluation.
+- Add the published Gemma 4 E2B cross-family refit artifact and its exact heterogeneous target
+  recipe.
 
 ## 0.1.2 - 2026-07-16
 

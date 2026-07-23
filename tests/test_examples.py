@@ -8,7 +8,6 @@ from types import ModuleType
 import torch
 from torch import nn
 
-
 ROOT = Path(__file__).parents[1]
 EXAMPLES = ROOT / "examples"
 if str(EXAMPLES) not in sys.path:
@@ -42,7 +41,7 @@ def test_refit_example_uses_published_source_artifact_and_raw_target() -> None:
 
     assert example.DATASET_REVISION == "ffc3c0e44f529bf64a5ae62ed5db090952db97ea"
     assert example.SOURCE_ARTIFACT == "RampPublic/portal-qwen3-4b"
-    assert example.SOURCE_ARTIFACT_REVISION == "v0.1.0"
+    assert example.SOURCE_ARTIFACT_REVISION == "v0.2.0"
     assert example.TARGET_BASE.model_id == "Qwen/Qwen3-8B"
     assert example.REFIT_MAX_EXAMPLES == 1000
 
@@ -52,13 +51,14 @@ def test_evaluation_example_uses_published_artifact_and_matching_base() -> None:
 
     assert example.DATASET_REVISION == "ffc3c0e44f529bf64a5ae62ed5db090952db97ea"
     assert example.PORTAL_ARTIFACT == "RampPublic/portal-qwen3-8b"
-    assert example.PORTAL_ARTIFACT_REVISION == "v0.1.0"
+    assert example.PORTAL_ARTIFACT_REVISION == "v0.2.0"
     assert example.BASE.model_id == "Qwen/Qwen3-8B"
     assert example.EVAL_BATCH_SIZE == 8
 
 
 def test_base_recipe_forwards_host_loading_controls_without_bulk_device_move(monkeypatch) -> None:
     from transformers import AutoModelForCausalLM, AutoTokenizer
+
     from portallib.runtime import BaseModelSpec, load_base
 
     calls: dict[str, object] = {}
@@ -113,6 +113,58 @@ def test_base_recipe_forwards_host_loading_controls_without_bulk_device_move(mon
     )
     assert model.to_calls == 0
     assert base.module_paths == {"q": "self_attn.q_proj"}
+
+
+def test_multimodal_base_recipe_uses_processor_tokenizer_and_explicit_topology(monkeypatch) -> None:
+    from transformers import AutoModelForMultimodalLM, AutoProcessor
+
+    from portallib.runtime import BaseModelSpec, load_base
+
+    calls: dict[str, object] = {}
+
+    class FakeTokenizer:
+        pad_token_id = None
+        pad_token = None
+        eos_token = "<eos>"
+
+    class FakeProcessor:
+        tokenizer = FakeTokenizer()
+
+    class FakeModel(nn.Module):
+        def __init__(self) -> None:
+            super().__init__()
+            self.anchor = nn.Parameter(torch.zeros(()))
+
+    model = FakeModel()
+
+    def load_processor(model_id: str, **kwargs: object) -> FakeProcessor:
+        calls["processor"] = (model_id, kwargs)
+        return FakeProcessor()
+
+    def load_model(model_id: str, **kwargs: object) -> FakeModel:
+        calls["model"] = (model_id, kwargs)
+        return model
+
+    monkeypatch.setattr(AutoProcessor, "from_pretrained", load_processor)
+    monkeypatch.setattr(AutoModelForMultimodalLM, "from_pretrained", load_model)
+    recipe = BaseModelSpec(
+        "google/gemma-4-E2B",
+        "exact-revision",
+        layer_path="model.language_model.layers",
+        loader="multimodal_lm",
+        allow_heterogeneous_targets=True,
+    )
+
+    base = load_base(recipe, device=torch.device("cpu"), dtype=torch.float32)
+
+    assert calls["processor"] == ("google/gemma-4-E2B", {"revision": "exact-revision"})
+    assert calls["model"] == (
+        "google/gemma-4-E2B",
+        {"revision": "exact-revision", "dtype": torch.float32},
+    )
+    assert base.tokenizer.pad_token == "<eos>"
+    assert base.layer_path == "model.language_model.layers"
+    assert base.allow_heterogeneous_targets is True
 
 
 def test_cuda_context_initialization_is_guarded_and_device_scoped(monkeypatch) -> None:
