@@ -10,6 +10,7 @@ from types import SimpleNamespace
 import pytest
 import torch
 from peft import PeftModel
+from safetensors import safe_open
 from torch import nn
 from torch.utils.checkpoint import checkpoint
 
@@ -308,16 +309,16 @@ def make_factor_parameters(
     dtype: torch.dtype = torch.float32,
 ) -> dict[tuple[int, str], tuple[nn.Parameter, nn.Parameter]]:
     factors: dict[tuple[int, str], tuple[nn.Parameter, nn.Parameter]] = {}
-    for layer_index, module_name, _exact_path in config.targets():
-        key = (layer_index, module_name)
+    for target in config.projection_targets:
+        key = target.key
         active = key == active_key
         a = torch.full(
-            (config.rank, config.in_dims[module_name]),
+            (config.rank, target.in_features),
             0.25 if active else 0.0,
             dtype=dtype,
         )
         b = torch.full(
-            (config.out_dims[module_name], config.rank),
+            (target.out_features, config.rank),
             -0.2 if active else 0.0,
             dtype=dtype,
         )
@@ -390,6 +391,12 @@ def test_native_artifact_round_trip(tmp_path: Path) -> None:
     original.save_pretrained(tmp_path)
 
     assert {path.name for path in tmp_path.iterdir()} == {"README.md", "config.json", "model.safetensors"}
+    saved_config = json.loads((tmp_path / "config.json").read_text())
+    assert saved_config["format_version"] == 1
+    assert "schema_version" not in saved_config
+    assert "projection_targets" in saved_config
+    with safe_open(tmp_path / "model.safetensors", framework="pt") as artifact:
+        assert artifact.metadata() == {"format": "portallib", "format_version": "1"}
     loaded = PortalModel.from_pretrained(tmp_path)
 
     assert loaded.config == original.config
@@ -476,9 +483,7 @@ def test_peft_targets_only_exact_language_model_paths(tmp_path: Path) -> None:
     portal.export_peft("alpha", tmp_path)
     adapter_config = json.loads((tmp_path / "adapter_config.json").read_text())
     assert set(adapter_config["target_modules"]) == {
-        f"model.language_model.layers.{layer_index}.{module_path}"
-        for layer_index in range(config.n_layers)
-        for module_path in config.module_paths.values()
+        target.exact_path(config.layer_path) for target in config.projection_targets
     }
     reloaded = PeftModel.from_pretrained(ToyMultimodalBaseModel(), tmp_path)
     reloaded_adapted = [name for name, module in reloaded.named_modules() if hasattr(module, "lora_A")]
@@ -487,7 +492,9 @@ def test_peft_targets_only_exact_language_model_paths(tmp_path: Path) -> None:
 
 def test_config_rejects_direct_and_requires_exact_paths() -> None:
     with pytest.raises(ValueError, match="canonical"):
-        PortalConfig(**{**make_config().to_dict(), "architecture": "direct"})
+        PortalConfig.from_dict({**make_config().to_dict(), "architecture": "direct"})
+    with pytest.raises(ValueError, match="format_version=1"):
+        PortalConfig.from_dict({**make_config().to_dict(), "format_version": 2})
     with pytest.raises(ValueError, match="exact projection path"):
         PortalConfig.from_model(
             ToyBaseModel(),
@@ -501,7 +508,9 @@ def test_config_rejects_direct_and_requires_exact_paths() -> None:
 def test_config_enumerates_each_exact_target_once() -> None:
     config = make_config()
 
-    assert all(isinstance(target, PortalProjectionTarget) for target in config.target_specs())
+    assert config.format_version == 1
+    assert len(config.projection_targets) == config.n_layers * len(config.modules)
+    assert all(isinstance(target, PortalProjectionTarget) for target in config.projection_targets)
     assert list(config.targets()) == [
         (0, "q", "model.layers.0.self_attn.q_proj"),
         (0, "v", "model.layers.0.self_attn.v_proj"),
@@ -556,14 +565,13 @@ def make_heterogeneous_portal() -> PortalModel:
     )
 
 
-def test_heterogeneous_target_layout_groups_shapes_and_absent_projections() -> None:
+def test_explicit_projection_schema_groups_shapes_and_absent_projections() -> None:
     config = make_heterogeneous_config()
     portal = make_heterogeneous_portal()
     factors = portal.generate("alpha")
 
-    assert config.schema_version == 2
-    assert all(isinstance(target, PortalProjectionTarget) for target in config.target_specs())
-    assert config.in_dims == config.out_dims == {}
+    assert config.format_version == 1
+    assert all(isinstance(target, PortalProjectionTarget) for target in config.projection_targets)
     assert config.input_groups == {"q": 4, "v": 4}
     assert config.output_groups == {
         "q__out_4": 4,
@@ -580,7 +588,7 @@ def test_heterogeneous_target_layout_groups_shapes_and_absent_projections() -> N
         (3, "q", "model.language_model.layers.3.self_attn.q_proj"),
     ]
     assert set(factors) == {(0, "q"), (0, "v"), (1, "q"), (1, "v"), (2, "q"), (3, "q")}
-    for target in config.target_specs():
+    for target in config.projection_targets:
         a, b = factors[(target.layer_index, target.module_name)]
         assert a.shape == (config.rank, target.in_features)
         assert b.shape == (target.out_features, config.rank)

@@ -41,7 +41,7 @@ def test_refit_example_uses_published_source_artifact_and_raw_target() -> None:
 
     assert example.DATASET_REVISION == "ffc3c0e44f529bf64a5ae62ed5db090952db97ea"
     assert example.SOURCE_ARTIFACT == "RampPublic/portal-qwen3-4b"
-    assert example.SOURCE_ARTIFACT_REVISION == "v0.1.0"
+    assert example.SOURCE_ARTIFACT_REVISION == "v0.2.0"
     assert example.TARGET_BASE.model_id == "Qwen/Qwen3-8B"
     assert example.REFIT_MAX_EXAMPLES == 1000
 
@@ -51,7 +51,7 @@ def test_evaluation_example_uses_published_artifact_and_matching_base() -> None:
 
     assert example.DATASET_REVISION == "ffc3c0e44f529bf64a5ae62ed5db090952db97ea"
     assert example.PORTAL_ARTIFACT == "RampPublic/portal-qwen3-8b"
-    assert example.PORTAL_ARTIFACT_REVISION == "v0.1.0"
+    assert example.PORTAL_ARTIFACT_REVISION == "v0.2.0"
     assert example.BASE.model_id == "Qwen/Qwen3-8B"
     assert example.EVAL_BATCH_SIZE == 8
 

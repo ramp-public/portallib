@@ -9,7 +9,7 @@
 </p>
 
 > Alpha research release [announced by Ramp Labs](https://x.com/RampLabs/status/2072381992285647280).
-> APIs and artifact schemas may evolve before the first stable release.
+> APIs and artifact formats may evolve before the first stable release.
 
 PorTAL learns a base-agnostic task latent and a light per-base alignment that generates ordinary
 per-layer LoRA weights. A task can be trained once, adapted to supported frozen base models, and
@@ -60,7 +60,7 @@ base = AutoModelForCausalLM.from_pretrained(
 )
 portal = PortalModel.from_pretrained(
     "RampPublic/portal-qwen3-4b",
-    revision="v0.1.0",
+    revision="v0.2.0",
 )
 model = portal.get_peft_model("rte", base)
 model.save_pretrained("./portal-rte-qwen3-4b")
@@ -79,13 +79,13 @@ The exported directory is an ordinary PEFT adapter and reloads with
 
 | Artifact | Role |
 |---|---|
-| [`RampPublic/portal-qwen3-1.7b`](https://huggingface.co/RampPublic/portal-qwen3-1.7b) | Jointly trained shared weights plus the 1.7B alignment |
-| [`RampPublic/portal-qwen3-4b`](https://huggingface.co/RampPublic/portal-qwen3-4b) | Jointly trained shared weights plus the 4B alignment |
-| [`RampPublic/portal-qwen3-8b`](https://huggingface.co/RampPublic/portal-qwen3-8b) | 1,000-example-per-task refit |
-| [`RampPublic/portal-gemma-3-4b`](https://huggingface.co/RampPublic/portal-gemma-3-4b) | 1,000-example-per-task cross-family refit |
-| [`RampPublic/portal-gemma-4-e2b`](https://huggingface.co/RampPublic/portal-gemma-4-e2b) | 1,000-example-per-task heterogeneous-attention refit |
+| [`RampPublic/portal-qwen3-1.7b`](https://huggingface.co/RampPublic/portal-qwen3-1.7b/tree/v0.2.0) | Jointly trained shared weights plus the 1.7B alignment |
+| [`RampPublic/portal-qwen3-4b`](https://huggingface.co/RampPublic/portal-qwen3-4b/tree/v0.2.0) | Jointly trained shared weights plus the 4B alignment |
+| [`RampPublic/portal-qwen3-8b`](https://huggingface.co/RampPublic/portal-qwen3-8b/tree/v0.2.0) | 1,000-example-per-task refit |
+| [`RampPublic/portal-gemma-3-4b`](https://huggingface.co/RampPublic/portal-gemma-3-4b/tree/v0.2.0) | 1,000-example-per-task cross-family refit |
+| [`RampPublic/portal-gemma-4-e2b`](https://huggingface.co/RampPublic/portal-gemma-4-e2b/tree/v0.2.0) | 1,000-example-per-task heterogeneous-attention refit |
 
-The recipes load the `v0.1.0` artifact revisions. Each repository contains one base-specific native
+The recipes load the `v0.2.0` artifact revisions. Each repository contains one base-specific native
 PorTAL artifact; task-specific standard PEFT adapters can be generated from it as needed.
 
 ## Python workflows
@@ -185,14 +185,15 @@ behavior comes from the installed `portallib` release and selected recipe.
 
 PorTAL supports Qwen3 and cross-family refitting to Gemma 3 and Gemma 4. Qwen3 exposes decoder
 layers at `model.layers`; Gemma 3 and Gemma 4 expose their text decoder at
-`model.language_model.layers`. Gemma 4 uses the multimodal auto-model loader and an explicit sparse
-target layout because its projection dimensions and available projections vary across layers.
+`model.language_model.layers`. Gemma 4 uses the multimodal auto-model loader and explicit sparse
+projection targets because its projection dimensions and available projections vary across layers.
 
-Other model families can use uniform or heterogeneous target layouts when their exact decoder-layer
-and projection paths are supplied through `BaseModelSpec`. Set `allow_heterogeneous_targets=True`
-to opt into sparse per-layer targets or varying projection widths. PorTAL records every resolved
-target and validates its exact path and dimensions before training, refitting, evaluation, or PEFT
-materialization. It does not infer architecture mappings from fuzzy module-name patterns.
+Every artifact uses the same explicit projection-target format. Other model families can use it
+when their exact decoder-layer and projection paths are supplied through `BaseModelSpec`. Set
+`allow_heterogeneous_targets=True` to opt into sparse per-layer targets or varying projection
+widths. PorTAL records every resolved target and validates its exact path and dimensions before
+training, refitting, evaluation, or PEFT materialization. It does not infer architecture mappings
+from fuzzy module-name patterns.
 
 The checked-in `modules=("q", "v")` setting generates LoRA for query/value projections. Set it to
 `("q", "k", "v", "o", "gate", "up", "down")` to include the attention output and MLP
@@ -202,8 +203,8 @@ projections. In both cases, the base model parameters remain frozen.
 
 Native artifacts use the standard Hugging Face layout:
 
-- `config.json` contains the schema version, base model and revision, task names, LoRA settings,
-  exact layer/module paths, and projection dimensions.
+- `config.json` contains `format_version=1`, the base model and revision, task names, LoRA settings,
+  and one explicit list of exact projection targets for both uniform and heterogeneous bases.
 - `model.safetensors` contains `task_latents`, the canonical `core`, and one base-specific
   `alignment`, with `portallib` format metadata.
 - `README.md` is the generated model card.
@@ -217,7 +218,7 @@ portal.push_to_hub("your-namespace/portal-qwen3-4b", private=True)
 ```
 
 Configured layers and projections are resolved deterministically. Missing modules, incompatible
-dimensions, unknown schema versions, and inconsistent target declarations fail explicitly.
+dimensions, unknown format versions, and inconsistent target declarations fail explicitly.
 
 ## Public API
 

@@ -66,7 +66,7 @@ class PortalAlignment(nn.Module):
         layer_ids = torch.arange(self.config.n_layers, device=z.device)
         hidden = core.hidden(z, self.layer_embeddings(layer_ids))
         generated: GeneratedLora = {}
-        for target in self.config.target_specs():
+        for target in self.config.projection_targets:
             canonical_a = core.A[target.module_name](hidden[target.layer_index]).view(
                 self.config.rank, self.config.d_core
             )

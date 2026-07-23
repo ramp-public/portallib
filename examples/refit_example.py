@@ -33,7 +33,7 @@ from portallib import (
 
 # Both source artifacts contain the same jointly trained task latents and canonical core.
 SOURCE_ARTIFACT = "RampPublic/portal-qwen3-4b"
-SOURCE_ARTIFACT_REVISION: str | None = "v0.1.0"
+SOURCE_ARTIFACT_REVISION: str | None = "v0.2.0"
 TARGET_BASE = BaseModelSpec(
     "Qwen/Qwen3-8B",
     "b968826d9c46dd6066d109eabc6255188de91218",

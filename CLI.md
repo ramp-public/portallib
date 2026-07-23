@@ -29,7 +29,7 @@ Unknown keys, duplicate tasks or source model IDs, invalid types, and command/re
 errors.
 
 `recipe_version` versions this TOML automation contract. It is independent from the
-`PortalConfig.schema_version` stored in native artifacts, which versions the artifact topology.
+`PortalConfig.format_version` stored in native artifacts, which versions the artifact format.
 
 The checked-in starting points are:
 

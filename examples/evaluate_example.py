@@ -27,7 +27,7 @@ from portallib import (
 # ---------------------------------------------------------------------------
 
 PORTAL_ARTIFACT = "RampPublic/portal-qwen3-8b"
-PORTAL_ARTIFACT_REVISION: str | None = "v0.1.0"
+PORTAL_ARTIFACT_REVISION: str | None = "v0.2.0"
 BASE = BaseModelSpec(
     "Qwen/Qwen3-8B",
     "b968826d9c46dd6066d109eabc6255188de91218",

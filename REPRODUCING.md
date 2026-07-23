@@ -5,6 +5,7 @@ artifacts and three target-base refits. The [Ramp Labs
 announcement](https://x.com/RampLabs/status/2072381992285647280) introduces PorTAL. The pinned
 configuration below reproduces the paper's source-training, target-refitting, and evaluation method;
 it does not make a fixed numerical-performance guarantee across hardware or dependency versions.
+All five repositories expose the unified native artifact format at the immutable `v0.2.0` tag.
 
 ## Install the released package and recipes
 
@@ -46,6 +47,16 @@ portallib validate --config examples/configs/train.toml
 | `Qwen/Qwen3-8B` | `b968826d9c46dd6066d109eabc6255188de91218` |
 | `google/gemma-3-4b-pt` | `cc012e0a6d0787b4adcc0fa2c4da74402494554d` |
 | `google/gemma-4-E2B` | `d29ff6b45f081a49ee2733a859c9c9c2d95d1a6f` |
+
+The immutable `v0.2.0` artifact tags resolve to:
+
+| Artifact | Commit | `model.safetensors` SHA-256 |
+|---|---|---|
+| `RampPublic/portal-qwen3-1.7b` | `be09be533b5c0418ad20269f19ebb63e9efbc330` | `732286e119c396c62b8c1d6b115f3ae6eec951a47eaa9bcdf0fee65564ff9688` |
+| `RampPublic/portal-qwen3-4b` | `1ff8d529c07082f9da067918da2aceafc65ebaf9` | `bdbc778aef719df2397b2267967d1a64a7b2c0a84cb3fb5203c3d846740725fa` |
+| `RampPublic/portal-qwen3-8b` | `6593b49ae790ec6d601db5a081c81463cb8b3a5f` | `b1e94342fe777770f14147d2cacee1f568159a7c39788c661cdf46ff8e1284c4` |
+| `RampPublic/portal-gemma-3-4b` | `df48a77135f6f560d546c733472ac9d89c371ab0` | `026008fc1ebfcc1c00424260f6dd1fe925bfe58d233423302a0aab1e18f3b887` |
+| `RampPublic/portal-gemma-4-e2b` | `1059db59197489ac59b2ff9affd48043bdd22537` | `ba63db93c9798091825a49128d6011d78192222f82456037d5f0b22b0b770d6a` |
 
 ## Rebuild the canonical task data
 
@@ -138,8 +149,8 @@ python examples/train_example.py
 
 The run writes one complete artifact per source base:
 
-- [`RampPublic/portal-qwen3-1.7b`](https://huggingface.co/RampPublic/portal-qwen3-1.7b)
-- [`RampPublic/portal-qwen3-4b`](https://huggingface.co/RampPublic/portal-qwen3-4b)
+- [`RampPublic/portal-qwen3-1.7b`](https://huggingface.co/RampPublic/portal-qwen3-1.7b/tree/v0.2.0)
+- [`RampPublic/portal-qwen3-4b`](https://huggingface.co/RampPublic/portal-qwen3-4b/tree/v0.2.0)
 
 The two artifacts contain identical task latents and canonical core weights. Each contains only the
 alignment and exact model metadata for its own base.
@@ -181,9 +192,9 @@ TARGET_BASE = BaseModelSpec(
 
 The resulting release artifacts are:
 
-- [`RampPublic/portal-qwen3-8b`](https://huggingface.co/RampPublic/portal-qwen3-8b)
-- [`RampPublic/portal-gemma-3-4b`](https://huggingface.co/RampPublic/portal-gemma-3-4b)
-- [`RampPublic/portal-gemma-4-e2b`](https://huggingface.co/RampPublic/portal-gemma-4-e2b)
+- [`RampPublic/portal-qwen3-8b`](https://huggingface.co/RampPublic/portal-qwen3-8b/tree/v0.2.0)
+- [`RampPublic/portal-gemma-3-4b`](https://huggingface.co/RampPublic/portal-gemma-3-4b/tree/v0.2.0)
+- [`RampPublic/portal-gemma-4-e2b`](https://huggingface.co/RampPublic/portal-gemma-4-e2b/tree/v0.2.0)
 
 ## Phase 3: reload and evaluate
 

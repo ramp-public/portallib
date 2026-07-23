@@ -193,7 +193,7 @@ class PortalModel(
         save_file(
             tensors,
             save_directory / WEIGHTS_NAME,
-            metadata={"format": "portallib", "schema_version": str(self.config.schema_version)},
+            metadata={"format": "portallib", "format_version": str(self.config.format_version)},
         )
 
     @classmethod
@@ -237,8 +237,8 @@ class PortalModel(
             metadata = artifact.metadata() or {}
             if metadata.get("format") != "portallib":
                 raise ValueError("invalid PorTAL weights: missing format='portallib' metadata")
-            if metadata.get("schema_version") != str(config.schema_version):
-                raise ValueError("PorTAL config and weights schema versions do not match")
+            if metadata.get("format_version") != str(config.format_version):
+                raise ValueError("PorTAL config and weights format versions do not match")
         tensors = load_file(weights_path, device=str(device))
         if "task_latents" not in tensors:
             raise ValueError("invalid PorTAL weights: missing task_latents")

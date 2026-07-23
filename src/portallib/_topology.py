@@ -64,7 +64,7 @@ class PortalProjectionTarget:
     @classmethod
     def from_dict(cls, value: dict[str, Any]) -> PortalProjectionTarget:
         if not isinstance(value, dict):
-            raise TypeError("each target_layout entry must be an object")
+            raise TypeError("each projection_targets entry must be an object")
         return cls(**value)
 
 
@@ -89,14 +89,6 @@ class _ProjectionDiscovery:
         return bool(self.missing_targets) or any(
             len(dimensions) != 1 for dimensions in self.dimensions_by_module.values()
         )
-
-
-@dataclass(frozen=True)
-class _ArtifactTopology:
-    schema_version: int
-    in_dims: dict[str, int]
-    out_dims: dict[str, int]
-    target_layout: list[PortalProjectionTarget] | None
 
 
 def resolve_module_paths(
@@ -214,28 +206,12 @@ def require_supported_topology(
     )
 
 
-def build_artifact_topology(
+def build_projection_targets(
     discovery: _ProjectionDiscovery,
     *,
     modules: tuple[str, ...],
-    schema_version: int | None,
-) -> _ArtifactTopology:
-    expected_schema = 2 if discovery.heterogeneous else 1
-    if schema_version is not None and schema_version != expected_schema:
-        topology = "heterogeneous" if discovery.heterogeneous else "uniform"
-        raise ValueError(f"{topology} target layouts require schema_version={expected_schema}")
-
-    if not discovery.heterogeneous:
-        dimensions = {
-            name: next(iter(module_dimensions)) for name, module_dimensions in discovery.dimensions_by_module.items()
-        }
-        return _ArtifactTopology(
-            schema_version=1,
-            in_dims={name: sizes[0] for name, sizes in dimensions.items()},
-            out_dims={name: sizes[1] for name, sizes in dimensions.items()},
-            target_layout=None,
-        )
-
+) -> list[PortalProjectionTarget]:
+    """Build the one explicit artifact topology used by every supported base."""
     input_sizes = {
         name: {in_features for in_features, _out_features in dimensions}
         for name, dimensions in discovery.dimensions_by_module.items()
@@ -249,7 +225,7 @@ def build_artifact_topology(
         discovery.projections,
         key=lambda projection: (projection.layer_index, module_order[projection.module_name]),
     )
-    target_layout = [
+    return [
         PortalProjectionTarget(
             layer_index=projection.layer_index,
             module_name=projection.module_name,
@@ -269,9 +245,3 @@ def build_artifact_topology(
         )
         for projection in projections
     ]
-    return _ArtifactTopology(
-        schema_version=2,
-        in_dims={},
-        out_dims={},
-        target_layout=target_layout,
-    )
