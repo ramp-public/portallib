@@ -4,6 +4,12 @@ All notable changes to `portallib` are documented here.
 
 ## Unreleased
 
+- Add the `portallib inspect` command, which prints an artifact's base model, tasks, canonical
+  dimensions, and projection layout by reading only its `config.json`, without downloading weights
+  or loading the base model.
+- Add `PortalConfig.from_pretrained` to load an artifact configuration alone from a Hub repository,
+  a local directory, or a `config.json` path.
+
 ## 0.2.1 - 2026-07-25
 
 - Add opt-in norm-equalized per-task gradients and character-normalized choice loss for frozen-core

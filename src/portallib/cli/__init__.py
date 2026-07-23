@@ -8,7 +8,7 @@ from pathlib import Path
 
 from .. import __version__
 from .recipes import EvaluateRecipe, RecipeError, RefitRecipe, TrainRecipe, _parse_recipe, load_recipe
-from .workflows import _emit, _run_evaluate, _run_refit, _run_train
+from .workflows import _emit, _run_evaluate, _run_inspect, _run_refit, _run_train
 
 __all__ = [
     "EvaluateRecipe",
@@ -31,12 +31,34 @@ def build_parser() -> argparse.ArgumentParser:
             required=True,
             help="Path to a versioned TOML recipe, or - to read it from stdin.",
         )
+    inspect_parser = subparsers.add_parser(
+        "inspect",
+        help="Print an artifact's configuration without downloading its weights or base model.",
+    )
+    inspect_parser.add_argument("artifact", help="PorTAL artifact: a Hub repo id, local directory, or config.json.")
+    inspect_parser.add_argument("--revision", default=None, help="Artifact revision (Hub repositories only).")
+    inspect_parser.add_argument(
+        "--json",
+        dest="as_json",
+        action="store_true",
+        help="Emit one JSON object instead of the human-readable summary.",
+    )
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     """Run the CLI and return a process exit code."""
     args = build_parser().parse_args(argv)
+    if args.command == "inspect":
+        try:
+            _run_inspect(args.artifact, revision=args.revision, as_json=args.as_json)
+        except (OSError, ValueError, TypeError) as exc:
+            _emit(
+                {"event": "error", "stage": "inspect", "error_type": type(exc).__name__, "message": str(exc)},
+                stream=sys.stderr,
+            )
+            return 2
+        return 0
     try:
         recipe = (
             _parse_recipe(sys.stdin.read(), parent=Path.cwd(), source="<stdin>")
