@@ -78,6 +78,9 @@ The 1,000-example recipe selected epoch 4:
 | PorTAL-adapted | 0.7363 |
 | Absolute lift | +0.1634 |
 
+The selected native artifact is published as
+[`RampPublic/portal-gemma-4-e2b@v0.1.0`](https://huggingface.co/RampPublic/portal-gemma-4-e2b/tree/v0.1.0).
+
 Across the same 14 tasks, independently trained rank-16 full-text-decoder LoRA
 baselines averaged 0.7084. Relative to the frozen base, the PorTAL refit
 retained 120.6% of their aggregate lift. These are benchmark results for the

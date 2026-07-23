@@ -84,6 +84,7 @@ The exported directory is an ordinary PEFT adapter and reloads with
 | [`RampPublic/portal-qwen3-4b`](https://huggingface.co/RampPublic/portal-qwen3-4b) | Jointly trained shared weights plus the 4B alignment |
 | [`RampPublic/portal-qwen3-8b`](https://huggingface.co/RampPublic/portal-qwen3-8b) | 1,000-example-per-task refit |
 | [`RampPublic/portal-gemma-3-4b`](https://huggingface.co/RampPublic/portal-gemma-3-4b) | 1,000-example-per-task cross-family refit |
+| [`RampPublic/portal-gemma-4-e2b`](https://huggingface.co/RampPublic/portal-gemma-4-e2b) | 1,000-example-per-task heterogeneous-attention refit |
 
 The recipes load the `v0.1.0` artifact revisions. Each repository contains one base-specific native
 PorTAL artifact; task-specific standard PEFT adapters can be generated from it as needed.
