@@ -118,6 +118,41 @@ class ToyMultimodalBaseModel(nn.Module):
         return kwargs
 
 
+class HeterogeneousAttention(nn.Module):
+    def __init__(self, width: int, q_width: int, v_width: int | None):
+        super().__init__()
+        self.q_proj = nn.Linear(width, q_width, bias=False)
+        if v_width is not None:
+            self.v_proj = nn.Linear(width, v_width, bias=False)
+
+
+class HeterogeneousLayer(nn.Module):
+    def __init__(self, width: int, q_width: int, v_width: int | None):
+        super().__init__()
+        self.self_attn = HeterogeneousAttention(width, q_width, v_width)
+
+
+class HeterogeneousBaseModel(nn.Module):
+    """Miniature global/local topology with later shared KV projections."""
+
+    def __init__(self):
+        super().__init__()
+        self.config = SimpleNamespace(_name_or_path="toy/heterogeneous", use_cache=True)
+        self.model = nn.Module()
+        self.model.language_model = nn.Module()
+        self.model.language_model.layers = nn.ModuleList(
+            [
+                HeterogeneousLayer(4, 4, 2),
+                HeterogeneousLayer(4, 6, 3),
+                HeterogeneousLayer(4, 4, None),
+                HeterogeneousLayer(4, 6, None),
+            ]
+        )
+
+    def prepare_inputs_for_generation(self, *args, **kwargs):
+        return kwargs
+
+
 class ToyTokenizer:
     pad_token_id = 0
     eos_token_id = 1
@@ -451,6 +486,144 @@ def test_config_enumerates_each_exact_target_once() -> None:
         (1, "q", "model.layers.1.self_attn.q_proj"),
         (1, "v", "model.layers.1.self_attn.v_proj"),
     ]
+
+
+def make_heterogeneous_config() -> PortalConfig:
+    return PortalConfig.from_model(
+        HeterogeneousBaseModel(),
+        tasks=["alpha", "beta"],
+        base_model_name_or_path="toy/heterogeneous",
+        modules=("q", "v"),
+        layer_path="model.language_model.layers",
+        allow_heterogeneous_targets=True,
+        rank=2,
+        alpha=4,
+        d_z=3,
+        d_layer=2,
+        hidden=5,
+        d_core=3,
+    )
+
+
+def make_heterogeneous_portal() -> PortalModel:
+    source_config = PortalConfig.from_model(
+        ToyBaseModel(width=4, n_layers=4),
+        tasks=["alpha", "beta"],
+        base_model_name_or_path="toy/source",
+        modules=("q", "v"),
+        rank=2,
+        alpha=4,
+        d_z=3,
+        d_layer=2,
+        hidden=5,
+        d_core=3,
+    )
+    target_config = make_heterogeneous_config()
+    source = PortalDecoder(source_config)
+    with torch.no_grad():
+        for head in source.core.B.values():
+            head.weight.normal_(std=0.02)
+        alignment = PortalDecoder(target_config, core=copy.deepcopy(source.core), refit_init=True).alignment
+        for parameter in alignment.output.values():
+            parameter.normal_(std=0.02)
+    decoder = PortalDecoder(target_config, core=copy.deepcopy(source.core), alignment=alignment)
+    return PortalModel(target_config, torch.randn(2, target_config.d_z), decoder)
+
+
+def test_heterogeneous_target_layout_groups_shapes_and_absent_projections() -> None:
+    config = make_heterogeneous_config()
+    portal = make_heterogeneous_portal()
+    factors = portal.generate("alpha")
+
+    assert config.schema_version == 2
+    assert config.in_dims == config.out_dims == {}
+    assert config.input_groups == {"q": 4, "v": 4}
+    assert config.output_groups == {
+        "q__out_4": 4,
+        "v__out_2": 2,
+        "q__out_6": 6,
+        "v__out_3": 3,
+    }
+    assert list(config.targets()) == [
+        (0, "q", "model.language_model.layers.0.self_attn.q_proj"),
+        (0, "v", "model.language_model.layers.0.self_attn.v_proj"),
+        (1, "q", "model.language_model.layers.1.self_attn.q_proj"),
+        (1, "v", "model.language_model.layers.1.self_attn.v_proj"),
+        (2, "q", "model.language_model.layers.2.self_attn.q_proj"),
+        (3, "q", "model.language_model.layers.3.self_attn.q_proj"),
+    ]
+    assert set(factors) == {(0, "q"), (0, "v"), (1, "q"), (1, "v"), (2, "q"), (3, "q")}
+    for target in config.target_specs():
+        a, b = factors[(target.layer_index, target.module_name)]
+        assert a.shape == (config.rank, target.in_features)
+        assert b.shape == (target.out_features, config.rank)
+
+
+def test_heterogeneous_layout_is_opt_in_and_validates_exact_base_dimensions() -> None:
+    with pytest.raises(ValueError, match="exact projection path|dimensions vary"):
+        PortalConfig.from_model(
+            HeterogeneousBaseModel(),
+            tasks=["alpha"],
+            modules=("q", "v"),
+            layer_path="model.language_model.layers",
+        )
+
+    config = make_heterogeneous_config()
+    base = HeterogeneousBaseModel()
+    base.model.language_model.layers[0].self_attn.q_proj = nn.Linear(4, 5, bias=False)
+    with pytest.raises(ValueError, match="configured dimensions"):
+        PortalInjector(base, config)
+
+
+def test_heterogeneous_refit_alignment_is_differentiable_and_core_compatible() -> None:
+    source = make_portal()
+    target_config = make_heterogeneous_config()
+    decoder = PortalDecoder(target_config, core=copy.deepcopy(source.decoder.core), refit_init=True)
+
+    assert all(torch.count_nonzero(parameter) == 0 for parameter in decoder.alignment.output.values())
+    with torch.no_grad():
+        for parameter in decoder.alignment.output.values():
+            parameter.normal_(std=0.02)
+    factors = decoder(torch.randn(target_config.d_z))
+    sum(value.square().sum() for pair in factors.values() for value in pair).backward()
+
+    assert all(parameter.grad is not None for parameter in decoder.alignment.parameters())
+
+
+def test_heterogeneous_artifact_and_peft_round_trip(tmp_path: Path) -> None:
+    portal = make_heterogeneous_portal()
+    native = tmp_path / "native"
+    peft = tmp_path / "peft"
+    portal.save_pretrained(native)
+
+    loaded = PortalModel.from_pretrained(native)
+    assert loaded.config == portal.config
+    for key, expected in portal.generate("alpha").items():
+        actual = loaded.generate("alpha")[key]
+        torch.testing.assert_close(actual[0], expected[0])
+        torch.testing.assert_close(actual[1], expected[1])
+
+    adapted = portal.get_peft_model("alpha", HeterogeneousBaseModel())
+    adapted_names = [name for name, module in adapted.named_modules() if hasattr(module, "lora_A")]
+    assert len(adapted_names) == 6
+    assert all("language_model.layers" in name for name in adapted_names)
+    portal.export_peft("alpha", peft)
+    reloaded = PeftModel.from_pretrained(HeterogeneousBaseModel(), peft)
+    assert len([module for module in reloaded.modules() if hasattr(module, "lora_A")]) == 6
+
+
+def test_uniform_alignment_state_names_remain_compatible() -> None:
+    alignment = PortalDecoder(make_config()).alignment
+
+    assert set(alignment.input) == {"q", "v"}
+    assert set(alignment.output) == {"q", "v"}
+    assert set(alignment.state_dict()) == {
+        "layer_embeddings.weight",
+        "input.q",
+        "input.v",
+        "output.q",
+        "output.v",
+    }
 
 
 def test_injector_uses_live_output_placement_for_meta_weight() -> None:

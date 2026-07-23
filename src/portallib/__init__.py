@@ -2,7 +2,7 @@
 
 from importlib.metadata import PackageNotFoundError, version
 
-from .config import PortalConfig
+from .config import PortalConfig, PortalTarget
 from .data import ChoiceDataset, ChoiceExample
 from .decoder import PortalDecoder
 from .evaluation import EvaluationResult, PortalBase, PortalEvaluator, TaskEvaluation, collate_gold_batch
@@ -35,6 +35,7 @@ __all__ = [
     "PortalEvaluator",
     "PortalModel",
     "PortalTrainingConfig",
+    "PortalTarget",
     "RefitResult",
     "TaskEvaluation",
     "collate_gold_batch",

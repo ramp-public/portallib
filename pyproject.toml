@@ -61,6 +61,7 @@ include = [
   "/CLI.md",
   "/COMPUTE.md",
   "/Dockerfile",
+  "/docs",
   "/LICENSE",
   "/README.md",
   "/examples",

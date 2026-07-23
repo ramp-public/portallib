@@ -28,6 +28,8 @@ def test_console_entrypoint_targets_cli_main() -> None:
     [
         ("train.toml", cli.TrainRecipe, "train"),
         ("refit.toml", cli.RefitRecipe, "refit"),
+        ("refit_gemma4_e2b.toml", cli.RefitRecipe, "refit"),
+        ("refit_gemma4_e2b_smoke.toml", cli.RefitRecipe, "refit"),
         ("evaluate.toml", cli.EvaluateRecipe, "evaluate"),
     ],
 )
@@ -48,6 +50,18 @@ def test_validate_command_does_not_run_recipe(monkeypatch, capsys) -> None:
         "kind": "train",
         "schema_version": 1,
     }
+
+
+def test_gemma4_recipe_selects_multimodal_heterogeneous_refit() -> None:
+    recipe = cli.load_recipe(CONFIGS / "refit_gemma4_e2b.toml")
+
+    assert isinstance(recipe, cli.RefitRecipe)
+    assert recipe.base.model_id == "google/gemma-4-E2B"
+    assert recipe.base.loader == "multimodal_lm"
+    assert recipe.base.allow_heterogeneous_targets is True
+    assert recipe.base.layer_path == "model.language_model.layers"
+    assert recipe.training.refit_max_examples == 500
+    assert recipe.training.refit_nested_prefix is True
 
 
 def test_validate_reads_recipe_from_stdin_once(monkeypatch, capsys) -> None:

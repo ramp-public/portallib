@@ -32,6 +32,8 @@ The checked-in starting points are:
 
 - [`examples/configs/train.toml`](examples/configs/train.toml)
 - [`examples/configs/refit.toml`](examples/configs/refit.toml)
+- [`examples/configs/refit_gemma4_e2b.toml`](examples/configs/refit_gemma4_e2b.toml)
+- [`examples/configs/refit_gemma4_e2b_1000.toml`](examples/configs/refit_gemma4_e2b_1000.toml)
 - [`examples/configs/evaluate.toml`](examples/configs/evaluate.toml)
 
 ## Automation contract
@@ -100,6 +102,8 @@ table. Each table accepts:
 | `dtype` | no | Per-base dtype override |
 | `device_map` | no | Hugging Face device-map string or inline table |
 | `attn_implementation` | no | Hugging Face attention implementation |
+| `loader` | no | `causal_lm` (default) or `multimodal_lm` (Transformers 5+) |
+| `allow_heterogeneous_targets` | no | Opt into exact sparse targets and per-layer projection widths |
 
 When `device_map` is present, the loader preserves Hugging Face placement and does not apply a bulk
 device move. Exact layer and projection paths are passed to `PortalBase` and validated before
@@ -111,6 +115,10 @@ training.
 optimizer fields. Refit recipes inherit architecture fields from the source artifact and reject
 attempts to override them. Use the string `"all"` for `source_max_examples`, `eval_max_examples`,
 or evaluation `max_examples` when no cap is desired.
+
+Set `refit_nested_prefix = true` to make smaller refit budgets prefixes of the same seeded
+per-task permutation. This is useful for controlled data-efficiency comparisons and does not alter
+the established sampling policy unless explicitly enabled.
 
 Source training requires `output_dir` and one or more `[[bases]]` tables. It writes one complete
 artifact per source base beneath the output directory. Refitting requires `output_dir`,

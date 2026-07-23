@@ -130,6 +130,8 @@ class BaseModelRecipe(_StrictModel):
     dtype: DTypeName | None = None
     device_map: NonEmptyStr | dict[NonEmptyStr, int | NonEmptyStr] | None = None
     attn_implementation: NonEmptyStr | None = None
+    loader: Literal["causal_lm", "multimodal_lm"] = "causal_lm"
+    allow_heterogeneous_targets: bool = False
 
     @field_validator("dtype", mode="before")
     @classmethod
@@ -150,6 +152,7 @@ class BaseModelRecipe(_StrictModel):
 
 class _TrainingRecipe(_StrictModel):
     refit_max_examples: PositiveInt | None = None
+    refit_nested_prefix: bool | None = None
     eval_max_examples: Limit = None
     eval_batch_size: PositiveInt | None = None
     epochs: PositiveInt | None = None

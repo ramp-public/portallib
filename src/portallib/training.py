@@ -35,6 +35,7 @@ class PortalTrainingConfig:
     source_resample_each_epoch: bool = True
     source_steps_per_epoch: int | None = None
     refit_max_examples: int = 2000
+    refit_nested_prefix: bool = False
     eval_max_examples: int | None = 1000
     eval_batch_size: int = 8
     epochs: int = 5
@@ -137,6 +138,7 @@ def _model_config(base: PortalBase, tasks: tuple[str, ...], recipe: PortalTraini
         base_model_revision=base.revision,
         layer_path=base.layer_path,
         module_paths=base.module_paths,
+        allow_heterogeneous_targets=base.allow_heterogeneous_targets,
         **recipe.architecture_kwargs(),
     )
 
@@ -679,11 +681,16 @@ class PortalAdapterRefitter:
         for task_index, task in enumerate(self.tasks):
             full = list(self.dataset.rows("train", task))
             size = min(self.recipe.refit_max_examples, len(full))
-            pools[task_index] = (
-                full
-                if size == len(full)
-                else random.Random(self.recipe.seed * 100_003 + task_index * 131 + size).sample(full, size)
-            )
+            if size == len(full):
+                pools[task_index] = full
+            elif self.recipe.refit_nested_prefix:
+                shuffled = list(full)
+                random.Random(self.recipe.seed * 100_003 + task_index * 131).shuffle(shuffled)
+                pools[task_index] = shuffled[:size]
+            else:
+                pools[task_index] = random.Random(
+                    self.recipe.seed * 100_003 + task_index * 131 + size
+                ).sample(full, size)
         batches = _batches(pools, self.recipe.batch_size)
         rounds = max(len(task_batches) for task_batches in batches.values())
         alignment_parameters = list(self.alignment.parameters())
@@ -770,6 +777,7 @@ class PortalAdapterRefitter:
                 "steps_per_epoch": rounds,
                 "tasks_per_step": len(self.tasks),
                 "refit_examples_per_task": {task: len(pools[task_index]) for task_index, task in enumerate(self.tasks)},
+                "refit_nested_prefix": self.recipe.refit_nested_prefix,
                 "lr_scheduler": self.recipe.lr_scheduler,
                 "warmup_ratio": self.recipe.warmup_ratio,
                 "planned_optimizer_steps": self.recipe.epochs * rounds,

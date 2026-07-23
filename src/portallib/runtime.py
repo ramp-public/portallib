@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import torch
 
@@ -15,7 +15,7 @@ from .evaluation import PortalBase
 
 @dataclass(frozen=True)
 class BaseModelSpec:
-    """One causal-language-model revision and its exact decoder paths."""
+    """One frozen base-model revision and its exact decoder topology."""
 
     model_id: str
     revision: str | None = None
@@ -24,10 +24,14 @@ class BaseModelSpec:
     dtype: torch.dtype | str | None = None
     device_map: str | dict[str, int | str | torch.device] | None = None
     attn_implementation: str | None = None
+    loader: Literal["causal_lm", "multimodal_lm"] = "causal_lm"
+    allow_heterogeneous_targets: bool = False
 
     def __post_init__(self) -> None:
         if not self.model_id.strip():
             raise ValueError("base model_id must not be empty")
+        if self.loader not in {"causal_lm", "multimodal_lm"}:
+            raise ValueError("base loader must be 'causal_lm' or 'multimodal_lm'")
         validate_dotted_path(self.layer_path, name="base layer_path")
         if self.module_paths is not None:
             if not self.module_paths or any(not name for name in self.module_paths):
@@ -82,7 +86,21 @@ def load_base(recipe: BaseModelSpec, *, device: torch.device, dtype: torch.dtype
     except ImportError as exc:
         raise ImportError("base-model loading requires `pip install portallib[training]`") from exc
 
-    tokenizer = AutoTokenizer.from_pretrained(recipe.model_id, revision=recipe.revision)
+    if recipe.loader == "multimodal_lm":
+        try:
+            from transformers import AutoModelForMultimodalLM, AutoProcessor
+        except ImportError as exc:
+            raise ImportError(
+                "multimodal base-model loading requires Transformers 5 or newer"
+            ) from exc
+        processor = AutoProcessor.from_pretrained(recipe.model_id, revision=recipe.revision)
+        tokenizer = getattr(processor, "tokenizer", None)
+        if tokenizer is None:
+            raise ValueError(f"multimodal processor for {recipe.model_id!r} does not expose a tokenizer")
+        model_loader = AutoModelForMultimodalLM
+    else:
+        tokenizer = AutoTokenizer.from_pretrained(recipe.model_id, revision=recipe.revision)
+        model_loader = AutoModelForCausalLM
     if tokenizer.pad_token_id is None:
         tokenizer.pad_token = tokenizer.eos_token
     model_kwargs: dict[str, Any] = {
@@ -93,7 +111,7 @@ def load_base(recipe: BaseModelSpec, *, device: torch.device, dtype: torch.dtype
         model_kwargs["device_map"] = recipe.device_map
     if recipe.attn_implementation is not None:
         model_kwargs["attn_implementation"] = recipe.attn_implementation
-    model = AutoModelForCausalLM.from_pretrained(recipe.model_id, **model_kwargs)
+    model = model_loader.from_pretrained(recipe.model_id, **model_kwargs)
     if recipe.device_map is None:
         model = model.to(device)
     _initialize_cuda_context(next(model.parameters()).device)
@@ -104,4 +122,5 @@ def load_base(recipe: BaseModelSpec, *, device: torch.device, dtype: torch.dtype
         revision=recipe.revision,
         layer_path=recipe.layer_path,
         module_paths=recipe.module_paths,
+        allow_heterogeneous_targets=recipe.allow_heterogeneous_targets,
     )

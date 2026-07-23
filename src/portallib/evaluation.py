@@ -11,6 +11,7 @@ import torch
 import torch.nn.functional as F
 from torch import nn
 
+from ._paths import exact_module_path
 from .config import PortalConfig
 from .data import ChoiceDataset, ChoiceExample
 from .decoder import GeneratedLora
@@ -27,6 +28,7 @@ class PortalBase:
     revision: str | None = None
     layer_path: str = "model.layers"
     module_paths: dict[str, str] | None = None
+    allow_heterogeneous_targets: bool = False
 
     @property
     def device(self) -> torch.device:
@@ -99,7 +101,10 @@ class PortalInjector:
         self._checkpoint_active: _ActiveFactors | None = None
         self._factor_specs: dict[tuple[int, str], tuple[int, int]] = {}
         self._handles: list[torch.utils.hooks.RemovableHandle] = []
-        for layer_index, short_name, exact_path in config.targets():
+        for target in config.target_specs():
+            layer_index = target.layer_index
+            short_name = target.module_name
+            exact_path = exact_module_path(config.layer_path, layer_index, target.module_path)
             try:
                 module = base_model.get_submodule(exact_path)
             except (AttributeError, KeyError) as exc:
@@ -111,6 +116,12 @@ class PortalInjector:
             key = (layer_index, short_name)
             in_features = module.in_features
             out_features = module.out_features
+            if (in_features, out_features) != (target.in_features, target.out_features):
+                self.close()
+                raise ValueError(
+                    f"configured dimensions at {exact_path!r} are {(target.in_features, target.out_features)}, "
+                    f"but the base projection is {(in_features, out_features)}"
+                )
             self._factor_specs[key] = (in_features, out_features)
 
             def hook(

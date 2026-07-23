@@ -86,13 +86,22 @@ GPU architectures.
 
 [`examples/launchers/modal_launcher.py`](examples/launchers/modal_launcher.py) is one optional
 compute wrapper. It builds the repository's Docker image, mounts persistent storage at the recipe's
-`artifacts/` directory, and runs the CLI invocation selected by its `COMMAND` constant.
+`artifacts/` directory, and runs the selected CLI command and recipe.
 
 ```bash
 python -m pip install modal
 modal setup
 modal secret create HF_TOKEN HF_TOKEN=your_token
 modal run examples/launchers/modal_launcher.py
+```
+
+The launcher accepts a command and recipe without source edits. For the Gemma 4 compatibility
+smoke, run:
+
+```bash
+modal run -e experiments examples/launchers/modal_launcher.py \
+  --command refit \
+  --config examples/configs/refit_gemma4_e2b_smoke.toml
 ```
 
 Download a completed output directory with:
