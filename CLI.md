@@ -117,6 +117,12 @@ optimizer fields. Refit recipes inherit architecture fields from the source arti
 attempts to override them. Use the string `"all"` for `source_max_examples`, `eval_max_examples`,
 or evaluation `max_examples` when no cap is desired.
 
+Refit recipes may set `refit_gradient_strategy = "norm_equalized"` to equalize the global
+alignment-gradient norm contributed by every task before each optimizer step. Set
+`refit_choice_loss_weight` above zero to add character-normalized multiple-choice cross-entropy to
+gold-token NLL; this uses the same continuation boundaries and `acc_norm` scores as
+`PortalEvaluator`. Their defaults, `"sum"` and `0.0`, preserve the standard gold-NLL refit.
+
 Source training requires `output_dir` and one or more `[[bases]]` tables. It writes one complete
 artifact per source base beneath the output directory. Refitting requires `output_dir`,
 `source_artifact`, and one `[base]` target table. Checkpoints are written beneath

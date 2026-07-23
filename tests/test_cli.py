@@ -268,6 +268,58 @@ model_id = "example/base"
         cli.load_recipe(path)
 
 
+def test_refit_recipe_accepts_balanced_character_normalized_objective(tmp_path: Path) -> None:
+    path = tmp_path / "recipe.toml"
+    path.write_text(
+        """
+recipe_version = 1
+kind = "refit"
+output_dir = "output"
+source_artifact = "example/source"
+
+[dataset]
+repo_id = "example/tasks"
+
+[base]
+model_id = "example/base"
+
+[training]
+refit_gradient_strategy = "norm_equalized"
+refit_choice_loss_weight = 3.0
+""".strip(),
+        encoding="utf-8",
+    )
+
+    recipe = cli.load_recipe(path)
+
+    assert recipe.training.refit_gradient_strategy == "norm_equalized"
+    assert recipe.training.refit_choice_loss_weight == 3.0
+
+
+def test_train_recipe_rejects_refit_only_optimizer_fields(tmp_path: Path) -> None:
+    path = tmp_path / "recipe.toml"
+    path.write_text(
+        """
+recipe_version = 1
+kind = "train"
+output_dir = "output"
+
+[dataset]
+repo_id = "example/tasks"
+
+[training]
+refit_gradient_strategy = "norm_equalized"
+
+[[bases]]
+model_id = "example/base"
+""".strip(),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(cli.RecipeError, match="refit_gradient_strategy"):
+        cli.load_recipe(path)
+
+
 def test_local_dataset_path_is_explicit_and_relative_to_recipe(tmp_path: Path) -> None:
     path = tmp_path / "recipe.toml"
     path.write_text(

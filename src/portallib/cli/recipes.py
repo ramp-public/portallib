@@ -147,8 +147,7 @@ class BaseModelRecipe(_StrictModel):
         return BaseModelSpec(**self.model_dump())
 
 
-class RefitSettings(_StrictModel):
-    refit_max_examples: PositiveInt | None = None
+class OptimizationSettings(_StrictModel):
     eval_max_examples: Limit = None
     eval_batch_size: PositiveInt | None = None
     epochs: PositiveInt | None = None
@@ -167,7 +166,7 @@ class RefitSettings(_StrictModel):
     task_regression_threshold: float | None = None
 
     @model_validator(mode="after")
-    def validate_training_config(self) -> RefitSettings:
+    def validate_training_config(self) -> OptimizationSettings:
         try:
             PortalTrainingConfig(**self.overrides())
         except (TypeError, ValueError) as exc:
@@ -178,7 +177,13 @@ class RefitSettings(_StrictModel):
         return self.model_dump(exclude_unset=True)
 
 
-class TrainSettings(RefitSettings):
+class RefitSettings(OptimizationSettings):
+    refit_max_examples: PositiveInt | None = None
+    refit_gradient_strategy: Literal["sum", "norm_equalized"] | None = None
+    refit_choice_loss_weight: float | None = None
+
+
+class TrainSettings(OptimizationSettings):
     modules: ModuleTuple | None = None
     rank: PositiveInt | None = None
     alpha: PositiveInt | None = None

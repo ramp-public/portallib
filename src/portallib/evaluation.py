@@ -234,6 +234,90 @@ def collate_gold_batch(
     return input_ids.to(device), attention_mask.to(device), labels.to(device)
 
 
+def _choice_batch_losses(
+    model: nn.Module,
+    tokenizer: Any,
+    rows: list[ChoiceExample],
+    *,
+    max_prompt: int,
+    device: torch.device,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Return differentiable gold-token NLL and character-normalized choice loss."""
+    sequences: list[list[int]] = []
+    metadata: list[tuple[int, int, int, int]] = []
+    for row_index, row in enumerate(rows):
+        for choice_index, (sequence, answer_length, characters) in enumerate(
+            _encode_row_choices(
+                tokenizer,
+                row,
+                max_prompt=max_prompt,
+            )
+        ):
+            if answer_length == 0:
+                raise ValueError(f"choice {choice_index} for task {row.task!r} tokenizes to an empty continuation")
+            sequences.append(sequence)
+            metadata.append((row_index, choice_index, answer_length, characters))
+
+    max_length = max(map(len, sequences))
+    input_ids = torch.full(
+        (len(sequences), max_length),
+        _pad_token_id(tokenizer),
+        dtype=torch.long,
+        device=device,
+    )
+    attention_mask = torch.zeros_like(input_ids)
+    for index, sequence in enumerate(sequences):
+        length = len(sequence)
+        input_ids[index, :length] = torch.tensor(sequence, device=device)
+        attention_mask[index, :length] = 1
+
+    logits = model(input_ids=input_ids, attention_mask=attention_mask).logits[:, :-1].float()
+    log_probs = logits.log_softmax(dim=-1)
+    row_scores: list[list[torch.Tensor]] = [[] for _row in rows]
+    gold_log_prob = torch.zeros((), device=device)
+    gold_tokens = 0
+    for batch_index, (row_index, choice_index, answer_length, characters) in enumerate(metadata):
+        sequence_length = len(sequences[batch_index])
+        answer_start = sequence_length - answer_length
+        positions = slice(answer_start - 1, sequence_length - 1)
+        targets = input_ids[batch_index, answer_start:sequence_length]
+        selected = log_probs[batch_index, positions].gather(-1, targets.unsqueeze(-1)).squeeze(-1)
+        total_log_prob = selected.sum()
+        row_scores[row_index].append(total_log_prob / characters)
+        if choice_index == rows[row_index].gold_idx:
+            gold_log_prob = gold_log_prob + total_log_prob
+            gold_tokens += answer_length
+
+    ranking_losses = [
+        -torch.log_softmax(torch.stack(scores), dim=0)[row.gold_idx]
+        for row, scores in zip(rows, row_scores, strict=True)
+    ]
+    return -gold_log_prob / max(gold_tokens, 1), torch.stack(ranking_losses).mean()
+
+
+def _encode_row_choices(
+    tokenizer: Any,
+    row: ChoiceExample,
+    *,
+    max_prompt: int,
+) -> list[tuple[list[int], int, int]]:
+    """Encode every choice with the evaluator's exact continuation boundary."""
+    prompt, boundary_whitespace = _encode_prompt(
+        tokenizer,
+        row.prompt,
+        max_prompt=max_prompt,
+    )
+    encoded: list[tuple[list[int], int, int]] = []
+    for choice in row.choices:
+        answer, continuation = _encode_continuation(
+            tokenizer,
+            boundary_whitespace,
+            choice,
+        )
+        encoded.append((prompt + answer, len(answer), max(len(continuation), 1)))
+    return encoded
+
+
 class PortalEvaluator:
     """Evaluate base or PorTAL-adapted models with normalized choice metrics."""
 
@@ -287,20 +371,16 @@ class PortalEvaluator:
             pending.clear()
 
         for row_index, row in enumerate(rows):
-            prompt, boundary_whitespace = _encode_prompt(
-                base.tokenizer,
-                row.prompt,
-                max_prompt=self.max_prompt,
-            )
-            for choice_index, choice in enumerate(row.choices):
-                answer, continuation = _encode_continuation(
+            for choice_index, (sequence, answer_length, characters) in enumerate(
+                _encode_row_choices(
                     base.tokenizer,
-                    boundary_whitespace,
-                    choice,
+                    row,
+                    max_prompt=self.max_prompt,
                 )
-                if not answer:
+            ):
+                if answer_length == 0:
                     continue
-                pending.append((row_index, choice_index, prompt + answer, len(answer), len(continuation)))
+                pending.append((row_index, choice_index, sequence, answer_length, characters))
                 if len(pending) == self.batch_size:
                     flush()
         flush()

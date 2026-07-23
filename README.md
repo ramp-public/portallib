@@ -183,8 +183,8 @@ behavior comes from the installed `portallib` release and selected recipe.
 
 ## Model compatibility
 
-PorTAL supports Qwen3 and cross-family refitting to Gemma 3 and Gemma 4. Qwen3 exposes decoder
-layers at `model.layers`; Gemma 3 and Gemma 4 expose their text decoder at
+PorTAL supports Qwen3 and cross-family refitting to Mistral, Gemma 3, and Gemma 4. Qwen3 and
+Mistral expose decoder layers at `model.layers`; Gemma 3 and Gemma 4 expose their text decoder at
 `model.language_model.layers`. Gemma 4 uses the multimodal auto-model loader and explicit sparse
 projection targets because its projection dimensions and available projections vary across layers.
 
@@ -228,6 +228,8 @@ dimensions, unknown format versions, and inconsistent target declarations fail e
 - `PortalCoreTrainer` jointly trains shared latents/core and one alignment per source base using
   balanced per-task updates, EMA loss normalization, and per-base latent-gradient balancing.
 - `PortalAdapterRefitter` freezes a source artifact's latents/core and trains only a target alignment.
+  Refit recipes can equalize per-task gradient norms and add a differentiable character-normalized
+  choice loss when a target family needs closer alignment with `acc_norm`.
 - `PortalTrainingConfig.from_portal_config` preserves an artifact's architecture while selecting a
   new optimization recipe for refitting.
 - `PortalEvaluator` evaluates or compares raw and adapted bases while reporting character-normalized
