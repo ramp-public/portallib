@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from contextvars import ContextVar
 from dataclasses import dataclass, field
 from typing import Any
@@ -351,7 +351,7 @@ class PortalEvaluator:
             for task in task_names:
                 rows = dataset.rows("validation", task, limit=max_examples)
                 factors = portal.generate(task) if portal is not None else None
-                activation = injector.activate(factors) if injector is not None else _null_context()
+                activation = injector.activate(factors) if injector is not None else nullcontext()
                 with activation:
                     scores, gold_nll, gold_tokens = self._score_rows(base, rows)
                 correct = sum(
@@ -376,11 +376,6 @@ class PortalEvaluator:
             macro_accuracy=sum(result.accuracy for result in results.values()) / len(results),
             macro_gold_nll=sum(result.gold_nll for result in results.values()) / len(results),
         )
-
-
-@contextmanager
-def _null_context() -> Iterator[None]:
-    yield
 
 
 def _encode_prompt(

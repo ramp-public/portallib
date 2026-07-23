@@ -147,7 +147,7 @@ class BaseModelRecipe(_StrictModel):
         return BaseModelSpec(**self.model_dump())
 
 
-class _TrainingRecipe(_StrictModel):
+class RefitSettings(_StrictModel):
     refit_max_examples: PositiveInt | None = None
     eval_max_examples: Limit = None
     eval_batch_size: PositiveInt | None = None
@@ -167,7 +167,7 @@ class _TrainingRecipe(_StrictModel):
     task_regression_threshold: float | None = None
 
     @model_validator(mode="after")
-    def validate_training_config(self) -> _TrainingRecipe:
+    def validate_training_config(self) -> RefitSettings:
         try:
             PortalTrainingConfig(**self.overrides())
         except (TypeError, ValueError) as exc:
@@ -178,7 +178,7 @@ class _TrainingRecipe(_StrictModel):
         return self.model_dump(exclude_unset=True)
 
 
-class TrainSettings(_TrainingRecipe):
+class TrainSettings(RefitSettings):
     modules: ModuleTuple | None = None
     rank: PositiveInt | None = None
     alpha: PositiveInt | None = None
@@ -190,10 +190,6 @@ class TrainSettings(_TrainingRecipe):
     source_resample_each_epoch: bool | None = None
     source_steps_per_epoch: PositiveInt | None = None
     latent_learning_rate: float | None = None
-
-
-class RefitSettings(_TrainingRecipe):
-    pass
 
 
 class CommonRecipe(_StrictModel):
