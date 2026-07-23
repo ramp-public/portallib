@@ -26,6 +26,7 @@ from portallib import (
     PortalDecoder,
     PortalEvaluator,
     PortalModel,
+    PortalProjectionTarget,
     PortalTrainingConfig,
     TaskEvaluation,
     collate_gold_batch,
@@ -480,6 +481,7 @@ def test_config_rejects_direct_and_requires_exact_paths() -> None:
 def test_config_enumerates_each_exact_target_once() -> None:
     config = make_config()
 
+    assert all(isinstance(target, PortalProjectionTarget) for target in config.target_specs())
     assert list(config.targets()) == [
         (0, "q", "model.layers.0.self_attn.q_proj"),
         (0, "v", "model.layers.0.self_attn.v_proj"),
@@ -536,6 +538,7 @@ def test_heterogeneous_target_layout_groups_shapes_and_absent_projections() -> N
     factors = portal.generate("alpha")
 
     assert config.schema_version == 2
+    assert all(isinstance(target, PortalProjectionTarget) for target in config.target_specs())
     assert config.in_dims == config.out_dims == {}
     assert config.input_groups == {"q": 4, "v": 4}
     assert config.output_groups == {

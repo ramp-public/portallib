@@ -25,7 +25,7 @@ _ARCHITECTURE_FIELDS = ("modules", "rank", "alpha", "d_z", "d_layer", "hidden", 
 
 
 @dataclass(frozen=True)
-class PortalTarget:
+class PortalProjectionTarget:
     """One exact base-model projection generated from a logical canonical head."""
 
     layer_index: int
@@ -49,10 +49,117 @@ class PortalTarget:
                 raise ValueError(f"target {name} must be a valid parameter identifier")
 
     @classmethod
-    def from_dict(cls, value: dict[str, Any]) -> "PortalTarget":
+    def from_dict(cls, value: dict[str, Any]) -> "PortalProjectionTarget":
         if not isinstance(value, dict):
             raise TypeError("each target_layout entry must be an object")
         return cls(**value)
+
+
+def _validate_common(config: PortalConfig) -> None:
+    if config.library_name != "portallib":
+        raise ValueError(f"unsupported artifact library: {config.library_name!r}")
+    if config.architecture != "canonical":
+        raise ValueError("portallib v1 supports architecture='canonical' only")
+    if config.task_type != "CAUSAL_LM":
+        raise ValueError("portallib v1 supports task_type='CAUSAL_LM' only")
+    if not config.base_model_name_or_path.strip():
+        raise ValueError("base_model_name_or_path must not be empty")
+    if not config.tasks or len(set(config.tasks)) != len(config.tasks):
+        raise ValueError("tasks must be a non-empty list of unique names")
+    if any(not isinstance(task, str) or not task.strip() for task in config.tasks):
+        raise ValueError("task names must be non-empty strings")
+    positive_fields = {
+        "rank": config.rank,
+        "alpha": config.alpha,
+        "n_layers": config.n_layers,
+        "d_z": config.d_z,
+        "d_layer": config.d_layer,
+        "hidden": config.hidden,
+        "d_core": config.d_core,
+    }
+    invalid = [name for name, value in positive_fields.items() if not isinstance(value, int) or value <= 0]
+    if invalid:
+        raise ValueError(f"configuration values must be positive integers: {', '.join(invalid)}")
+
+
+def _normalize_projection_targets(
+    config: PortalConfig,
+) -> tuple[set[str], tuple[PortalProjectionTarget, ...]]:
+    if config.schema_version == 1:
+        if config.target_layout is not None:
+            raise ValueError("schema version 1 does not support target_layout")
+        modules = set(config.in_dims)
+        if modules != set(config.out_dims) or not modules:
+            raise ValueError("in_dims and out_dims must describe the same non-empty module set")
+        if any(
+            not isinstance(dimension, int) or dimension <= 0
+            for dimension in (*config.in_dims.values(), *config.out_dims.values())
+        ):
+            raise ValueError("all projection dimensions must be positive integers")
+        if config.module_paths is None:
+            object.__setattr__(
+                config,
+                "module_paths",
+                {name: DEFAULT_MODULE_PATHS[name] for name in config.in_dims},
+            )
+    elif config.schema_version == 2:
+        if not config.target_layout:
+            raise ValueError("schema version 2 requires a non-empty target_layout")
+        if config.in_dims or config.out_dims:
+            raise ValueError("schema version 2 derives dimensions from target_layout")
+        modules = {target.module_name for target in config.target_layout}
+    else:
+        raise ValueError(f"unsupported PorTAL schema version: {config.schema_version}")
+
+    unknown = sorted(modules - SUPPORTED_MODULES)
+    if unknown:
+        raise ValueError(f"unsupported module names: {unknown}")
+    if config.module_paths is None:
+        raise ValueError("module_paths must be provided for heterogeneous targets")
+    if set(config.module_paths) != modules:
+        raise ValueError("module_paths must describe exactly the configured modules")
+    validate_dotted_path(config.layer_path, name="layer_path")
+    for path in config.module_paths.values():
+        validate_dotted_path(path, name="module_paths values")
+    return modules, config.target_specs()
+
+
+def _validate_alignment_groups(targets: tuple[PortalProjectionTarget, ...]) -> None:
+    input_groups: dict[str, int] = {}
+    output_groups: dict[str, int] = {}
+    input_group_modules: dict[str, str] = {}
+    output_group_modules: dict[str, str] = {}
+    for target in targets:
+        for groups, group_modules, group, size in (
+            (input_groups, input_group_modules, target.input_group, target.in_features),
+            (output_groups, output_group_modules, target.output_group, target.out_features),
+        ):
+            previous = groups.setdefault(group, size)
+            if previous != size:
+                raise ValueError(f"alignment group {group!r} has inconsistent dimensions")
+            previous_module = group_modules.setdefault(group, target.module_name)
+            if previous_module != target.module_name:
+                raise ValueError(f"alignment group {group!r} cannot be shared across logical modules")
+
+
+def _validate_projection_targets(
+    config: PortalConfig,
+    modules: set[str],
+    targets: tuple[PortalProjectionTarget, ...],
+) -> None:
+    keys = [(target.layer_index, target.module_name) for target in targets]
+    if len(keys) != len(set(keys)):
+        raise ValueError("target_layout contains duplicate layer/module targets")
+    if any(target.layer_index >= config.n_layers for target in targets):
+        raise ValueError("target_layout layer index exceeds n_layers")
+    if {target.module_name for target in targets} != modules:
+        raise ValueError("every configured logical module must have at least one target")
+    _validate_alignment_groups(targets)
+    expected_targets = {target.module_path.rsplit(".", 1)[-1] for target in targets}
+    if len(config.target_modules) != len(set(config.target_modules)) or set(config.target_modules) != expected_targets:
+        raise ValueError(
+            f"target_modules must correspond exactly to configured targets; expected {sorted(expected_targets)}"
+        )
 
 
 @dataclass(frozen=True)
@@ -73,7 +180,7 @@ class PortalConfig:
     target_modules: list[str] = field(default_factory=lambda: ["q_proj", "v_proj"])
     layer_path: str = "model.layers"
     module_paths: dict[str, str] | None = None
-    target_layout: list[PortalTarget] | None = None
+    target_layout: list[PortalProjectionTarget] | None = None
     task_type: str = "CAUSAL_LM"
     architecture: str = "canonical"
     base_model_revision: str | None = None
@@ -81,88 +188,9 @@ class PortalConfig:
     library_name: str = "portallib"
 
     def __post_init__(self) -> None:
-        if self.library_name != "portallib":
-            raise ValueError(f"unsupported artifact library: {self.library_name!r}")
-        if self.schema_version not in {1, 2}:
-            raise ValueError(f"unsupported PorTAL schema version: {self.schema_version}")
-        if self.architecture != "canonical":
-            raise ValueError("portallib v1 supports architecture='canonical' only")
-        if self.task_type != "CAUSAL_LM":
-            raise ValueError("portallib v1 supports task_type='CAUSAL_LM' only")
-        if not self.base_model_name_or_path.strip():
-            raise ValueError("base_model_name_or_path must not be empty")
-        if not self.tasks or len(set(self.tasks)) != len(self.tasks):
-            raise ValueError("tasks must be a non-empty list of unique names")
-        if any(not isinstance(task, str) or not task.strip() for task in self.tasks):
-            raise ValueError("task names must be non-empty strings")
-        positive_fields = {
-            "rank": self.rank,
-            "alpha": self.alpha,
-            "n_layers": self.n_layers,
-            "d_z": self.d_z,
-            "d_layer": self.d_layer,
-            "hidden": self.hidden,
-            "d_core": self.d_core,
-        }
-        invalid = [name for name, value in positive_fields.items() if not isinstance(value, int) or value <= 0]
-        if invalid:
-            raise ValueError(f"configuration values must be positive integers: {', '.join(invalid)}")
-        if self.schema_version == 1 and self.target_layout is not None:
-            raise ValueError("schema version 1 does not support target_layout")
-        if self.schema_version == 2 and not self.target_layout:
-            raise ValueError("schema version 2 requires a non-empty target_layout")
-        modules = set(self.in_dims)
-        if self.schema_version == 1 and (modules != set(self.out_dims) or not modules):
-            raise ValueError("in_dims and out_dims must describe the same non-empty module set")
-        if self.schema_version == 2 and (self.in_dims or self.out_dims):
-            raise ValueError("schema version 2 derives dimensions from target_layout")
-        if self.target_layout is not None:
-            layout_modules = {target.module_name for target in self.target_layout}
-            if not layout_modules:
-                raise ValueError("target_layout must describe at least one logical module")
-            modules = layout_modules
-        unknown = sorted(modules - SUPPORTED_MODULES)
-        if unknown:
-            raise ValueError(f"unsupported module names: {unknown}")
-        if self.module_paths is None and self.schema_version == 1:
-            object.__setattr__(self, "module_paths", {name: DEFAULT_MODULE_PATHS[name] for name in self.in_dims})
-        if self.module_paths is None:
-            raise ValueError("module_paths must be provided for heterogeneous targets")
-        if set(self.module_paths) != modules:
-            raise ValueError("module_paths must describe exactly the configured modules")
-        validate_dotted_path(self.layer_path, name="layer_path")
-        for path in self.module_paths.values():
-            validate_dotted_path(path, name="module_paths values")
-        if any(not isinstance(dim, int) or dim <= 0 for dim in (*self.in_dims.values(), *self.out_dims.values())):
-            raise ValueError("all projection dimensions must be positive integers")
-        specs = self.target_specs()
-        keys = [(target.layer_index, target.module_name) for target in specs]
-        if len(keys) != len(set(keys)):
-            raise ValueError("target_layout contains duplicate layer/module targets")
-        if any(target.layer_index >= self.n_layers for target in specs):
-            raise ValueError("target_layout layer index exceeds n_layers")
-        if {target.module_name for target in specs} != modules:
-            raise ValueError("every configured logical module must have at least one target")
-        input_groups: dict[str, int] = {}
-        output_groups: dict[str, int] = {}
-        input_group_modules: dict[str, str] = {}
-        output_group_modules: dict[str, str] = {}
-        for target in specs:
-            for groups, group_modules, group, size in (
-                (input_groups, input_group_modules, target.input_group, target.in_features),
-                (output_groups, output_group_modules, target.output_group, target.out_features),
-            ):
-                previous = groups.setdefault(group, size)
-                if previous != size:
-                    raise ValueError(f"alignment group {group!r} has inconsistent dimensions")
-                previous_module = group_modules.setdefault(group, target.module_name)
-                if previous_module != target.module_name:
-                    raise ValueError(f"alignment group {group!r} cannot be shared across logical modules")
-        expected_targets = {target.module_path.rsplit(".", 1)[-1] for target in specs}
-        if len(self.target_modules) != len(set(self.target_modules)) or set(self.target_modules) != expected_targets:
-            raise ValueError(
-                f"target_modules must correspond exactly to configured targets; expected {sorted(expected_targets)}"
-            )
+        _validate_common(self)
+        modules, targets = _normalize_projection_targets(self)
+        _validate_projection_targets(self, modules, targets)
 
     @property
     def scaling(self) -> float:
@@ -205,12 +233,12 @@ class PortalConfig:
                 exact_module_path(self.layer_path, target.layer_index, target.module_path),
             )
 
-    def target_specs(self) -> tuple[PortalTarget, ...]:
+    def target_specs(self) -> tuple[PortalProjectionTarget, ...]:
         """Return the ordered exact target topology, deriving uniform v1 targets when needed."""
         if self.target_layout is not None:
             return tuple(self.target_layout)
         return tuple(
-            PortalTarget(
+            PortalProjectionTarget(
                 layer_index=layer_index,
                 module_name=module_name,
                 module_path=module_path,
@@ -235,7 +263,9 @@ class PortalConfig:
             raise TypeError("PorTAL configuration must be a JSON object")
         parsed = dict(value)
         if parsed.get("target_layout") is not None:
-            parsed["target_layout"] = [PortalTarget.from_dict(target) for target in parsed["target_layout"]]
+            parsed["target_layout"] = [
+                PortalProjectionTarget.from_dict(target) for target in parsed["target_layout"]
+            ]
         return cls(**parsed)
 
     @classmethod
@@ -313,7 +343,7 @@ class PortalConfig:
             raise ValueError("uniform target layouts require schema_version=1")
         in_dims: dict[str, int] = {}
         out_dims: dict[str, int] = {}
-        target_layout: list[PortalTarget] | None = None
+        target_layout: list[PortalProjectionTarget] | None = None
         if heterogeneous:
             in_sizes = {
                 name: {in_features for in_features, _out_features in dimensions}
@@ -326,7 +356,7 @@ class PortalConfig:
             module_order = {name: index for index, name in enumerate(modules)}
             raw_targets.sort(key=lambda target: (target[0], module_order[target[1]]))
             target_layout = [
-                PortalTarget(
+                PortalProjectionTarget(
                     layer_index=layer_index,
                     module_name=short_name,
                     module_path=relative_path,
