@@ -44,6 +44,24 @@ class PortalProjectionTarget:
             if not value.isidentifier():
                 raise ValueError(f"target {name} must be a valid parameter identifier")
 
+    @property
+    def key(self) -> tuple[int, str]:
+        return self.layer_index, self.module_name
+
+    @property
+    def dimensions(self) -> tuple[int, int]:
+        return self.in_features, self.out_features
+
+    @property
+    def alignment_groups(self) -> tuple[tuple[str, int], tuple[str, int]]:
+        return (
+            (self.input_group, self.in_features),
+            (self.output_group, self.out_features),
+        )
+
+    def exact_path(self, layer_path: str) -> str:
+        return exact_module_path(layer_path, self.layer_index, self.module_path)
+
     @classmethod
     def from_dict(cls, value: dict[str, Any]) -> PortalProjectionTarget:
         if not isinstance(value, dict):
@@ -93,8 +111,26 @@ def resolve_module_paths(
         raise ValueError(f"unsupported module names: {unknown}")
     paths = module_paths or {name: DEFAULT_MODULE_PATHS[name] for name in modules}
     if set(paths) != set(modules):
-        raise ValueError("module_paths must describe exactly the requested modules")
+        raise ValueError("module_paths must describe exactly the configured modules")
+    for path in paths.values():
+        validate_dotted_path(path, name="module_paths values")
     return paths
+
+
+def alignment_group_dimensions(
+    targets: tuple[PortalProjectionTarget, ...],
+) -> tuple[dict[str, int], dict[str, int]]:
+    dimensions: tuple[dict[str, int], dict[str, int]] = ({}, {})
+    modules: tuple[dict[str, str], dict[str, str]] = ({}, {})
+    for target in targets:
+        for axis, (group, size) in enumerate(target.alignment_groups):
+            previous_size = dimensions[axis].setdefault(group, size)
+            if previous_size != size:
+                raise ValueError(f"alignment group {group!r} has inconsistent dimensions")
+            previous_module = modules[axis].setdefault(group, target.module_name)
+            if previous_module != target.module_name:
+                raise ValueError(f"alignment group {group!r} cannot be shared across logical modules")
+    return dimensions
 
 
 def discover_projection_topology(

@@ -42,10 +42,11 @@ class PortalAlignment(nn.Module):
         super().__init__()
         self.config = config
         self.layer_embeddings = nn.Embedding(config.n_layers, config.d_layer)
+        input_groups, output_groups = config.alignment_groups
         self.input = nn.ParameterDict(
             {
                 group: nn.Parameter(torch.randn(config.d_core, in_features) * 0.02)
-                for group, in_features in config.input_groups.items()
+                for group, in_features in input_groups.items()
             }
         )
         self.output = nn.ParameterDict(
@@ -55,7 +56,7 @@ class PortalAlignment(nn.Module):
                     if zero_output
                     else torch.randn(out_features, config.d_core) * 0.02
                 )
-                for group, out_features in config.output_groups.items()
+                for group, out_features in output_groups.items()
             }
         )
 
@@ -72,7 +73,7 @@ class PortalAlignment(nn.Module):
             canonical_b = core.B[target.module_name](hidden[target.layer_index]).view(
                 self.config.d_core, self.config.rank
             )
-            generated[(target.layer_index, target.module_name)] = (
+            generated[target.key] = (
                 canonical_a @ self.input[target.input_group],
                 self.output[target.output_group] @ canonical_b,
             )

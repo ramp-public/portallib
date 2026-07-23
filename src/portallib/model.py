@@ -134,7 +134,7 @@ class PortalModel(
         """Build the standard PEFT configuration represented by this artifact."""
         from peft import LoraConfig
 
-        target_paths = [exact_path for _layer, _name, exact_path in self.config.targets()]
+        target_paths = [exact_path for _target, exact_path in self.config.resolved_targets()]
         return LoraConfig(
             base_model_name_or_path=self.config.base_model_name_or_path,
             revision=self.config.base_model_revision,
@@ -151,8 +151,8 @@ class PortalModel(
         """Generate canonical PEFT adapter keys without loading the base model."""
         generated = self.generate(task)
         adapter_state: dict[str, torch.Tensor] = {}
-        for layer_index, short_name, exact_path in self.config.targets():
-            key = (layer_index, short_name)
+        for target, exact_path in self.config.resolved_targets():
+            key = target.key
             if key not in generated:
                 raise ValueError(f"decoder did not generate configured PorTAL target {key}")
             a, b = generated[key]

@@ -11,7 +11,6 @@ import torch
 import torch.nn.functional as F
 from torch import nn
 
-from ._paths import exact_module_path
 from .config import PortalConfig
 from .data import ChoiceDataset, ChoiceExample
 from .decoder import GeneratedLora
@@ -101,10 +100,7 @@ class PortalInjector:
         self._checkpoint_active: _ActiveFactors | None = None
         self._factor_specs: dict[tuple[int, str], tuple[int, int]] = {}
         self._handles: list[torch.utils.hooks.RemovableHandle] = []
-        for target in config.target_specs():
-            layer_index = target.layer_index
-            short_name = target.module_name
-            exact_path = exact_module_path(config.layer_path, layer_index, target.module_path)
+        for target, exact_path in config.resolved_targets():
             try:
                 module = base_model.get_submodule(exact_path)
             except (AttributeError, KeyError) as exc:
@@ -113,16 +109,15 @@ class PortalInjector:
             if not isinstance(module, nn.Linear):
                 self.close()
                 raise TypeError(f"configured projection {exact_path!r} is not torch.nn.Linear")
-            key = (layer_index, short_name)
-            in_features = module.in_features
-            out_features = module.out_features
-            if (in_features, out_features) != (target.in_features, target.out_features):
+            key = target.key
+            dimensions = (module.in_features, module.out_features)
+            if dimensions != target.dimensions:
                 self.close()
                 raise ValueError(
-                    f"configured dimensions at {exact_path!r} are {(target.in_features, target.out_features)}, "
-                    f"but the base projection is {(in_features, out_features)}"
+                    f"configured dimensions at {exact_path!r} are {target.dimensions}, "
+                    f"but the base projection is {dimensions}"
                 )
-            self._factor_specs[key] = (in_features, out_features)
+            self._factor_specs[key] = dimensions
 
             def hook(
                 _module: nn.Module,

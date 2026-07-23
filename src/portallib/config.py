@@ -8,11 +8,11 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
-from ._paths import exact_module_path, validate_dotted_path
+from ._paths import validate_dotted_path
 from ._topology import (
-    DEFAULT_MODULE_PATHS,
     SUPPORTED_MODULES,
     PortalProjectionTarget,
+    alignment_group_dimensions,
     build_artifact_topology,
     discover_projection_topology,
     require_supported_topology,
@@ -56,58 +56,30 @@ def _normalize_projection_targets(
     if config.schema_version == 1:
         if config.target_layout is not None:
             raise ValueError("schema version 1 does not support target_layout")
-        modules = set(config.in_dims)
-        if modules != set(config.out_dims) or not modules:
+        module_names = tuple(config.in_dims)
+        if set(module_names) != set(config.out_dims) or not module_names:
             raise ValueError("in_dims and out_dims must describe the same non-empty module set")
         if any(
             not isinstance(dimension, int) or dimension <= 0
             for dimension in (*config.in_dims.values(), *config.out_dims.values())
         ):
             raise ValueError("all projection dimensions must be positive integers")
-        if config.module_paths is None:
-            object.__setattr__(
-                config,
-                "module_paths",
-                {name: DEFAULT_MODULE_PATHS[name] for name in config.in_dims},
-            )
     elif config.schema_version == 2:
         if not config.target_layout:
             raise ValueError("schema version 2 requires a non-empty target_layout")
         if config.in_dims or config.out_dims:
             raise ValueError("schema version 2 derives dimensions from target_layout")
-        modules = {target.module_name for target in config.target_layout}
+        module_names = tuple(dict.fromkeys(target.module_name for target in config.target_layout))
+        if config.module_paths is None:
+            raise ValueError("module_paths must be provided for heterogeneous targets")
     else:
         raise ValueError(f"unsupported PorTAL schema version: {config.schema_version}")
 
-    unknown = sorted(modules - SUPPORTED_MODULES)
-    if unknown:
-        raise ValueError(f"unsupported module names: {unknown}")
+    paths = resolve_module_paths(module_names, config.module_paths)
     if config.module_paths is None:
-        raise ValueError("module_paths must be provided for heterogeneous targets")
-    if set(config.module_paths) != modules:
-        raise ValueError("module_paths must describe exactly the configured modules")
+        object.__setattr__(config, "module_paths", paths)
     validate_dotted_path(config.layer_path, name="layer_path")
-    for path in config.module_paths.values():
-        validate_dotted_path(path, name="module_paths values")
-    return modules, config.target_specs()
-
-
-def _validate_alignment_groups(targets: tuple[PortalProjectionTarget, ...]) -> None:
-    input_groups: dict[str, int] = {}
-    output_groups: dict[str, int] = {}
-    input_group_modules: dict[str, str] = {}
-    output_group_modules: dict[str, str] = {}
-    for target in targets:
-        for groups, group_modules, group, size in (
-            (input_groups, input_group_modules, target.input_group, target.in_features),
-            (output_groups, output_group_modules, target.output_group, target.out_features),
-        ):
-            previous = groups.setdefault(group, size)
-            if previous != size:
-                raise ValueError(f"alignment group {group!r} has inconsistent dimensions")
-            previous_module = group_modules.setdefault(group, target.module_name)
-            if previous_module != target.module_name:
-                raise ValueError(f"alignment group {group!r} cannot be shared across logical modules")
+    return set(module_names), config.target_specs()
 
 
 def _validate_projection_targets(
@@ -115,14 +87,14 @@ def _validate_projection_targets(
     modules: set[str],
     targets: tuple[PortalProjectionTarget, ...],
 ) -> None:
-    keys = [(target.layer_index, target.module_name) for target in targets]
+    keys = [target.key for target in targets]
     if len(keys) != len(set(keys)):
         raise ValueError("target_layout contains duplicate layer/module targets")
     if any(target.layer_index >= config.n_layers for target in targets):
         raise ValueError("target_layout layer index exceeds n_layers")
     if {target.module_name for target in targets} != modules:
         raise ValueError("every configured logical module must have at least one target")
-    _validate_alignment_groups(targets)
+    alignment_group_dimensions(targets)
     expected_targets = {target.module_path.rsplit(".", 1)[-1] for target in targets}
     if len(config.target_modules) != len(set(config.target_modules)) or set(config.target_modules) != expected_targets:
         raise ValueError(
@@ -171,18 +143,17 @@ class PortalConfig:
     @property
     def input_groups(self) -> dict[str, int]:
         """Return stable input-alignment groups and their projection widths."""
-        groups: dict[str, int] = {}
-        for target in self.target_specs():
-            groups.setdefault(target.input_group, target.in_features)
-        return groups
+        return self.alignment_groups[0]
 
     @property
     def output_groups(self) -> dict[str, int]:
         """Return stable output-alignment groups and their projection widths."""
-        groups: dict[str, int] = {}
-        for target in self.target_specs():
-            groups.setdefault(target.output_group, target.out_features)
-        return groups
+        return self.alignment_groups[1]
+
+    @property
+    def alignment_groups(self) -> tuple[dict[str, int], dict[str, int]]:
+        """Return input and output alignment groups resolved from one target layout."""
+        return alignment_group_dimensions(self.target_specs())
 
     def shared_signature(self) -> tuple[Any, ...]:
         """Return fields that must match when a canonical core is shared across bases."""
@@ -194,12 +165,13 @@ class PortalConfig:
 
     def targets(self) -> Iterator[tuple[int, str, str]]:
         """Yield every configured target as ``(layer, short name, exact path)``."""
+        for target, exact_path in self.resolved_targets():
+            yield (*target.key, exact_path)
+
+    def resolved_targets(self) -> Iterator[tuple[PortalProjectionTarget, str]]:
+        """Yield normalized targets with their exact base-model paths."""
         for target in self.target_specs():
-            yield (
-                target.layer_index,
-                target.module_name,
-                exact_module_path(self.layer_path, target.layer_index, target.module_path),
-            )
+            yield target, target.exact_path(self.layer_path)
 
     def target_specs(self) -> tuple[PortalProjectionTarget, ...]:
         """Return the ordered exact target topology, deriving uniform v1 targets when needed."""
