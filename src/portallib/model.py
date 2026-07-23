@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from typing import Any
 
@@ -16,7 +15,6 @@ from torch import nn
 from ._architecture import GeneratedLora, PortalAlignment, PortalCore
 from .config import PortalConfig
 
-CONFIG_NAME = constants.CONFIG_NAME
 WEIGHTS_NAME = constants.SAFETENSORS_SINGLE_FILE
 
 _MODEL_CARD_TEMPLATE = """---
@@ -70,10 +68,6 @@ class PortalModel(
             raise ValueError("canonical core configuration is incompatible with the base artifact")
         if self.alignment.config != config:
             raise ValueError("alignment configuration does not match the base artifact")
-
-    @property
-    def tasks(self) -> tuple[str, ...]:
-        return tuple(self.config.tasks)
 
     def forward(self, task_latent: torch.Tensor) -> GeneratedLora:
         """Generate LoRA factors differentiably from one task latent."""
@@ -253,15 +247,3 @@ class PortalModel(
         kwargs.setdefault("base_model", self.config.base_model_name_or_path)
         kwargs.setdefault("tasks", self.config.tasks)
         return super().generate_model_card(**kwargs)
-
-    def to_json(self) -> str:
-        """Return a small human-readable artifact summary."""
-        return json.dumps(
-            {
-                "base_model": self.config.base_model_name_or_path,
-                "tasks": self.config.tasks,
-                "rank": self.config.rank,
-                "architecture": self.config.architecture,
-            },
-            indent=2,
-        )

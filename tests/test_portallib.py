@@ -427,7 +427,7 @@ def test_hub_download_uses_standard_files(tmp_path: Path, monkeypatch: pytest.Mo
 
     loaded = PortalModel.from_pretrained("example/portal", revision="release-1", local_files_only=True)
 
-    assert loaded.tasks == ("alpha", "beta")
+    assert loaded.config.tasks == ("alpha", "beta")
     assert calls == ["config.json", "model.safetensors"]
 
 
@@ -511,7 +511,7 @@ def test_config_enumerates_each_exact_target_once() -> None:
     assert config.format_version == 1
     assert len(config.projection_targets) == config.n_layers * len(config.modules)
     assert all(isinstance(target, PortalProjectionTarget) for target in config.projection_targets)
-    assert list(config.targets()) == [
+    assert [(target.layer_index, target.module_name, path) for target, path in config.resolved_targets()] == [
         (0, "q", "model.layers.0.self_attn.q_proj"),
         (0, "v", "model.layers.0.self_attn.v_proj"),
         (1, "q", "model.layers.1.self_attn.q_proj"),
@@ -572,14 +572,15 @@ def test_explicit_projection_schema_groups_shapes_and_absent_projections() -> No
 
     assert config.format_version == 1
     assert all(isinstance(target, PortalProjectionTarget) for target in config.projection_targets)
-    assert config.input_groups == {"q": 4, "v": 4}
-    assert config.output_groups == {
+    input_groups, output_groups = config.alignment_groups
+    assert input_groups == {"q": 4, "v": 4}
+    assert output_groups == {
         "q__out_4": 4,
         "v__out_2": 2,
         "q__out_6": 6,
         "v__out_3": 3,
     }
-    assert list(config.targets()) == [
+    assert [(target.layer_index, target.module_name, path) for target, path in config.resolved_targets()] == [
         (0, "q", "model.language_model.layers.0.self_attn.q_proj"),
         (0, "v", "model.language_model.layers.0.self_attn.v_proj"),
         (1, "q", "model.language_model.layers.1.self_attn.q_proj"),

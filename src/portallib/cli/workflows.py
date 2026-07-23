@@ -31,12 +31,8 @@ def _epoch_event(phase: str, epoch: EpochMetrics) -> dict[str, Any]:
     return {"event": "epoch", "phase": phase, **epoch.to_dict()}
 
 
-def _load_dataset(recipe: CommonRecipe) -> ChoiceDataset:
-    return load_dataset(recipe.dataset.source, revision=recipe.dataset.revision)
-
-
 def _load_runtime(recipe: CommonRecipe) -> tuple[ChoiceDataset, torch.device, torch.dtype]:
-    dataset = _load_dataset(recipe)
+    dataset = load_dataset(recipe.dataset.source, revision=recipe.dataset.revision)
     device, dtype = runtime_device(recipe.runtime.device, recipe.runtime.dtype)
     return dataset, device, dtype
 
