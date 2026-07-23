@@ -82,17 +82,16 @@ def _initialize_cuda_context(device: torch.device) -> None:
 def load_base(recipe: BaseModelSpec, *, device: torch.device, dtype: torch.dtype) -> PortalBase:
     """Load one tokenizer/base pair and describe it as a :class:`PortalBase`."""
     try:
-        from transformers import AutoModelForCausalLM, AutoTokenizer
+        from transformers import (
+            AutoModelForCausalLM,
+            AutoModelForMultimodalLM,
+            AutoProcessor,
+            AutoTokenizer,
+        )
     except ImportError as exc:
         raise ImportError("base-model loading requires `pip install portallib[training]`") from exc
 
     if recipe.loader == "multimodal_lm":
-        try:
-            from transformers import AutoModelForMultimodalLM, AutoProcessor
-        except ImportError as exc:
-            raise ImportError(
-                "multimodal base-model loading requires Transformers 5 or newer"
-            ) from exc
         processor = AutoProcessor.from_pretrained(recipe.model_id, revision=recipe.revision)
         tokenizer = getattr(processor, "tokenizer", None)
         if tokenizer is None:

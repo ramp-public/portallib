@@ -8,7 +8,8 @@ All notable changes to `portallib` are documented here.
   adapters remain active and differentiable when decoder layers are disk-offloaded.
 - Support explicit sparse target layouts and shape-grouped base alignments for models whose
   projection dimensions vary across decoder layers.
-- Add explicit multimodal-model loading for text-only execution through multimodal wrappers.
+- Require Transformers 5 in the training extra and add explicit multimodal-model loading for
+  text-only execution through multimodal wrappers.
 
 ## 0.2.0 - 2026-07-16
 

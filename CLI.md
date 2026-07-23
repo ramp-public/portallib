@@ -100,7 +100,7 @@ table. Each table accepts:
 | `dtype` | no | Per-base dtype override |
 | `device_map` | no | Hugging Face device-map string or inline table |
 | `attn_implementation` | no | Hugging Face attention implementation |
-| `loader` | no | `causal_lm` (default) or `multimodal_lm` (Transformers 5+) |
+| `loader` | no | `causal_lm` (default) or `multimodal_lm` |
 | `allow_heterogeneous_targets` | no | Opt into exact sparse targets and per-layer projection widths |
 
 When `device_map` is present, the loader preserves Hugging Face placement and does not apply a bulk
