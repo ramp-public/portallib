@@ -10,7 +10,6 @@ from typing import Any
 
 from ._paths import validate_dotted_path
 from ._topology import (
-    SUPPORTED_MODULES,
     PortalProjectionTarget,
     alignment_group_dimensions,
     build_artifact_topology,

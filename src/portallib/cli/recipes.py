@@ -21,7 +21,7 @@ from pydantic import (
     model_validator,
 )
 
-from ..config import SUPPORTED_MODULES
+from .._topology import validate_modules
 from ..runtime import BaseModelSpec
 from ..training import PortalTrainingConfig
 
@@ -68,10 +68,7 @@ def _unique_nonempty(value: tuple[str, ...]) -> tuple[str, ...]:
 
 
 def _supported_modules(value: tuple[str, ...]) -> tuple[str, ...]:
-    unknown = sorted(set(value) - SUPPORTED_MODULES)
-    if unknown:
-        raise ValueError(f"unsupported module names: {', '.join(unknown)}")
-    return value
+    return validate_modules(value)
 
 
 NonEmptyStr = Annotated[str, StringConstraints(min_length=1), AfterValidator(_non_blank)]

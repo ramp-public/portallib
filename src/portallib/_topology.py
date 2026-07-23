@@ -104,17 +104,22 @@ def resolve_module_paths(
     modules: tuple[str, ...],
     module_paths: dict[str, str] | None,
 ) -> dict[str, str]:
-    if not modules or len(set(modules)) != len(modules):
-        raise ValueError("modules must be a non-empty tuple of unique short names")
-    unknown = sorted(set(modules) - SUPPORTED_MODULES)
-    if unknown:
-        raise ValueError(f"unsupported module names: {unknown}")
+    validate_modules(modules)
     paths = module_paths or {name: DEFAULT_MODULE_PATHS[name] for name in modules}
     if set(paths) != set(modules):
         raise ValueError("module_paths must describe exactly the configured modules")
     for path in paths.values():
         validate_dotted_path(path, name="module_paths values")
     return paths
+
+
+def validate_modules(modules: tuple[str, ...]) -> tuple[str, ...]:
+    if not modules or len(set(modules)) != len(modules):
+        raise ValueError("modules must be a non-empty tuple of unique short names")
+    unknown = sorted(set(modules) - SUPPORTED_MODULES)
+    if unknown:
+        raise ValueError(f"unsupported module names: {', '.join(unknown)}")
+    return modules
 
 
 def alignment_group_dimensions(
