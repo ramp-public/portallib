@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Iterator
 from dataclasses import asdict, dataclass
+from pathlib import Path
 from typing import Any
 
 from ._paths import validate_dotted_path
@@ -122,6 +124,49 @@ class PortalConfig:
                 PortalProjectionTarget.from_dict(target) for target in parsed["projection_targets"]
             )
         return cls(**parsed)
+
+    @classmethod
+    def from_pretrained(
+        cls,
+        model_id: str | Path,
+        *,
+        revision: str | None = None,
+        cache_dir: str | Path | None = None,
+        force_download: bool = False,
+        local_files_only: bool = False,
+        token: str | bool | None = None,
+    ) -> PortalConfig:
+        """Load only an artifact's ``config.json`` without its weights or base model.
+
+        Accepts a local artifact directory, a direct ``config.json`` path, or a
+        Hugging Face repository id. Downloads a single small JSON file, so it is
+        safe for inspecting caches or verifying an artifact before committing to a
+        full model download.
+        """
+        path = Path(model_id)
+        if path.is_dir():
+            config_path = path / "config.json"
+            if not config_path.is_file():
+                raise FileNotFoundError(f"no config.json in artifact directory {path}")
+        elif path.is_file():
+            config_path = path
+        else:
+            from huggingface_hub import hf_hub_download
+
+            config_path = Path(
+                hf_hub_download(
+                    repo_id=str(model_id),
+                    filename="config.json",
+                    revision=revision,
+                    cache_dir=cache_dir,
+                    force_download=force_download,
+                    token=token,
+                    local_files_only=local_files_only,
+                    library_name="portallib",
+                )
+            )
+        with config_path.open(encoding="utf-8") as handle:
+            return cls.from_dict(json.load(handle))
 
     @classmethod
     def from_model(

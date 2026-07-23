@@ -174,6 +174,15 @@ authentication from `HF_TOKEN` or the host's cached login. Credentials do not be
 files. See [`CLI.md`](https://github.com/ramp-public/portallib/blob/main/CLI.md) for the schema and
 automation contract.
 
+`portallib inspect` prints an artifact's configuration — base model and revision, tasks, canonical
+dimensions, and projection layout — by reading only its `config.json`, without downloading weights
+or loading the base model:
+
+```bash
+portallib inspect RampPublic/portal-qwen3-1.7b --revision v0.2.0
+portallib inspect ./local-artifact --json
+```
+
 [`REPRODUCING.md`](https://github.com/ramp-public/portallib/blob/main/REPRODUCING.md) records pinned dataset and model revisions, the complete training
 configuration, checkpoint selection, and source/Qwen/Gemma recipes.
 

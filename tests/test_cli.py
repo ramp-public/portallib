@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from portallib import cli
+from portallib import PortalConfig, PortalProjectionTarget, cli
 from portallib.cli.workflows import _write_result
 
 ROOT = Path(__file__).parents[1]
@@ -372,3 +372,83 @@ def test_final_result_is_printed_and_persisted(tmp_path: Path, capsys) -> None:
 
     assert json.loads(capsys.readouterr().out) == result
     assert json.loads(recipe.result_path.read_text(encoding="utf-8")) == result
+
+
+def _write_artifact_config(directory: Path, *, sparse: bool = False) -> PortalConfig:
+    targets = [
+        PortalProjectionTarget(0, "q", "self_attn.q_proj", 8, 8, "q", "q"),
+        PortalProjectionTarget(0, "v", "self_attn.v_proj", 8, 8, "v", "v"),
+        PortalProjectionTarget(1, "q", "self_attn.q_proj", 8, 8, "q", "q"),
+    ]
+    if not sparse:
+        targets.append(PortalProjectionTarget(1, "v", "self_attn.v_proj", 8, 8, "v", "v"))
+    config = PortalConfig(
+        base_model_name_or_path="toy/base",
+        tasks=("alpha", "beta"),
+        n_layers=2,
+        projection_targets=tuple(targets),
+        rank=2,
+        alpha=4,
+        d_z=3,
+        d_layer=2,
+        hidden=5,
+        d_core=3,
+        base_model_revision="rev123",
+    )
+    directory.mkdir(parents=True, exist_ok=True)
+    (directory / "config.json").write_text(json.dumps(config.to_dict()), encoding="utf-8")
+    return config
+
+
+def test_inspect_emits_config_only_json(tmp_path: Path, capsys) -> None:
+    _write_artifact_config(tmp_path)
+
+    assert cli.main(["inspect", str(tmp_path), "--json"]) == 0
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["event"] == "inspect"
+    assert payload["base_model"] == "toy/base"
+    assert payload["base_model_revision"] == "rev123"
+    assert payload["tasks"] == ["alpha", "beta"]
+    assert payload["n_layers"] == 2
+    assert payload["modules"] == ["q", "v"]
+    assert payload["projection_targets"] == 4
+    assert payload["heterogeneous"] is False
+    assert payload["sparse"] is False
+    assert payload["targets_by_module"]["q"]["targets"] == 2
+    assert payload["alignment_groups"]["input"] == {"q": 8, "v": 8}
+    # Reading only config.json must not require any weights file.
+    assert not (tmp_path / "model.safetensors").exists()
+
+
+def test_inspect_human_summary_lists_base_and_tasks(tmp_path: Path, capsys) -> None:
+    _write_artifact_config(tmp_path)
+
+    assert cli.main(["inspect", str(tmp_path)]) == 0
+
+    out = capsys.readouterr().out
+    assert "base_model:      toy/base @ rev123" in out
+    assert "alpha, beta" in out
+    assert "uniform" in out
+
+
+def test_inspect_flags_sparse_layout(tmp_path: Path, capsys) -> None:
+    _write_artifact_config(tmp_path, sparse=True)
+
+    assert cli.main(["inspect", str(tmp_path), "--json"]) == 0
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["projection_targets"] == 3
+    assert payload["sparse"] is True
+
+
+def test_inspect_missing_config_exits_two(tmp_path: Path, capsys) -> None:
+    empty = tmp_path / "empty"
+    empty.mkdir()
+
+    assert cli.main(["inspect", str(empty)]) == 2
+
+    error = json.loads(capsys.readouterr().err)
+    assert error["event"] == "error"
+    assert error["stage"] == "inspect"
+    assert error["error_type"] == "FileNotFoundError"

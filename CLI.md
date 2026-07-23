@@ -37,6 +37,26 @@ The checked-in starting points are:
 - [`examples/configs/refit.toml`](examples/configs/refit.toml)
 - [`examples/configs/evaluate.toml`](examples/configs/evaluate.toml)
 
+## Inspecting an artifact
+
+`inspect` prints an artifact's configuration without downloading its weights or loading the base
+model. It reads only `config.json`, so it is fast enough to verify a cache or confirm an artifact's
+tasks, base model, and projection topology before committing to a full download. Unlike the workflow
+commands, it takes the artifact directly on the command line rather than a TOML recipe:
+
+```bash
+portallib inspect RampPublic/portal-qwen3-1.7b --revision v0.2.0
+portallib inspect ./local-artifact --json
+```
+
+The artifact argument is a Hugging Face repository id, a local artifact directory, or a direct
+`config.json` path; `--revision` selects a Hub revision and is ignored for local paths. The default
+output is a human-readable summary. `--json` emits one `inspect` JSON object with the base model and
+recorded revision, the task list, the canonical dimensions (`rank`, `alpha`, `d_z`, `d_layer`,
+`hidden`, `d_core`), the per-module projection layout, whether that layout is heterogeneous or
+sparse, and the resolved alignment groups. `inspect` exits `2` when the artifact or its
+configuration cannot be read.
+
 ## Automation contract
 
 CLI progress is emitted as one JSON object per line. Training and refitting emit an `epoch` event
