@@ -2,6 +2,14 @@
 
 All notable changes to `portallib` are documented here.
 
+## Unreleased
+
+- Add the `portallib inspect` command, which prints an artifact's base model, tasks, canonical
+  dimensions, and projection layout by reading only its `config.json`, without downloading weights
+  or loading the base model.
+- Add `PortalConfig.from_pretrained` to load an artifact configuration alone from a Hub repository,
+  a local directory, or a `config.json` path.
+
 ## 0.2.0 - 2026-07-23
 
 - Add the `portallib train`, `refit`, `evaluate`, and `validate` commands with strict, versioned

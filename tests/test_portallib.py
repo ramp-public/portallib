@@ -406,6 +406,22 @@ def test_native_artifact_round_trip(tmp_path: Path) -> None:
         torch.testing.assert_close(actual_b, expected_b)
 
 
+def test_config_from_pretrained_reads_config_json_without_weights(tmp_path: Path) -> None:
+    original = make_portal()
+    original.save_pretrained(tmp_path)
+
+    from_dir = PortalConfig.from_pretrained(tmp_path)
+    from_file = PortalConfig.from_pretrained(tmp_path / "config.json")
+
+    assert from_dir == original.config
+    assert from_file == original.config
+
+
+def test_config_from_pretrained_missing_directory_config(tmp_path: Path) -> None:
+    with pytest.raises(FileNotFoundError):
+        PortalConfig.from_pretrained(tmp_path)
+
+
 def test_portal_model_uses_standard_module_device_and_dtype_conversion() -> None:
     portal = make_portal().to(dtype=torch.float64)
 
