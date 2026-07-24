@@ -1,7 +1,7 @@
 recipe_version = 1
 kind = "refit"
-output_dir = "../../artifacts/portal-qwen3-8b-1000"
-result_path = "../../artifacts/portal-qwen3-8b-1000/result.json"
+output_dir = "../../../artifacts/portal-qwen3-8b-1000"
+result_path = "../../../artifacts/portal-qwen3-8b-1000/result.json"
 source_artifact = "RampPublic/portal-qwen3-4b"
 source_artifact_revision = "v0.2.0"
 

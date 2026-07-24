@@ -1,0 +1,37 @@
+recipe_version = 1
+kind = "refit"
+output_dir = "../../../artifacts/portal-mistral-7b-1000"
+result_path = "../../../artifacts/portal-mistral-7b-1000/result.json"
+source_artifact = "RampPublic/portal-qwen3-4b"
+source_artifact_revision = "v0.2.0"
+
+[dataset]
+repo_id = "RampPublic/portallib-tasks"
+revision = "ffc3c0e44f529bf64a5ae62ed5db090952db97ea"
+
+[runtime]
+device = "auto"
+dtype = "auto"
+
+[base]
+model_id = "mistralai/Mistral-7B-v0.3"
+revision = "caa1feb0e54d415e2df31207e5f4e273e33509b1"
+
+[training]
+refit_max_examples = 1000
+eval_max_examples = 1000
+eval_batch_size = 8
+epochs = 2
+batch_size = 4
+learning_rate = 2e-5
+lr_scheduler = "linear"
+warmup_ratio = 0.1
+weight_decay = 0.0
+grad_clip = 1.0
+ema_decay = 0.9
+ema_floor = 1e-3
+max_prompt = 768
+seed = 0
+gradient_checkpointing = true
+refit_gradient_strategy = "norm_equalized"
+refit_choice_loss_weight = 3.0

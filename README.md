@@ -114,7 +114,17 @@ python examples/refit_example.py
 The checked-in recipe reads the shared weights from `RampPublic/portal-qwen3-4b`; this does not make
 the refit 4B-only—the 1.7B and 4B source artifacts contain identical jointly trained task latents and
 canonical core weights. The default target is Qwen3-8B with at most 1,000 training examples per task.
-The adjacent Gemma 3 recipe uses the same shared components and its exact text-decoder layer path.
+Target-specific CLI recipes pin the exact target topology and optimizer:
+
+| Target | Recipe |
+|---|---|
+| Qwen3-8B | [`examples/configs/refits/qwen3-8b.toml`](examples/configs/refits/qwen3-8b.toml) |
+| Gemma 3 4B | [`examples/configs/refits/gemma-3-4b.toml`](examples/configs/refits/gemma-3-4b.toml) |
+| Gemma 4 E2B | [`examples/configs/refits/gemma-4-e2b.toml`](examples/configs/refits/gemma-4-e2b.toml) |
+| Mistral 7B v0.3 | [`examples/configs/refits/mistral-7b.toml`](examples/configs/refits/mistral-7b.toml) |
+
+The Mistral recipe uses norm-equalized per-task gradients and the character-normalized choice
+objective described below. The other recipes preserve their published target-refit settings.
 
 [`examples/evaluate_example.py`](https://github.com/ramp-public/portallib/blob/main/examples/evaluate_example.py) loads a trained PorTAL artifact and
 its matching raw base, then reports the base floor, adapted per-task metrics, macro metrics, and
@@ -149,7 +159,7 @@ scheduled jobs, and reproducible subprocess execution:
 | Workflow | Python | CLI |
 |---|---|---|
 | Source training | `python examples/train_example.py` | `portallib train --config examples/configs/train.toml` |
-| Target refitting | `python examples/refit_example.py` | `portallib refit --config examples/configs/refit.toml` |
+| Target refitting | `python examples/refit_example.py` | `portallib refit --config examples/configs/refits/qwen3-8b.toml` |
 | Evaluation | `python examples/evaluate_example.py` | `portallib evaluate --config examples/configs/evaluate.toml` |
 
 Install the training dependencies and optionally validate a recipe without loading models:

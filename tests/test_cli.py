@@ -27,7 +27,10 @@ def test_console_entrypoint_targets_cli_main() -> None:
     ("name", "recipe_type", "kind"),
     [
         ("train.toml", cli.TrainRecipe, "train"),
-        ("refit.toml", cli.RefitRecipe, "refit"),
+        ("refits/qwen3-8b.toml", cli.RefitRecipe, "refit"),
+        ("refits/gemma-3-4b.toml", cli.RefitRecipe, "refit"),
+        ("refits/gemma-4-e2b.toml", cli.RefitRecipe, "refit"),
+        ("refits/mistral-7b.toml", cli.RefitRecipe, "refit"),
         ("evaluate.toml", cli.EvaluateRecipe, "evaluate"),
     ],
 )
@@ -37,6 +40,30 @@ def test_checked_in_cli_recipes_validate(name: str, recipe_type: type, kind: str
     assert isinstance(recipe, recipe_type)
     assert recipe.kind == kind
     assert recipe.dataset.revision == "ffc3c0e44f529bf64a5ae62ed5db090952db97ea"
+
+
+def test_mistral_refit_recipe_matches_validated_optimizer() -> None:
+    recipe = cli.load_recipe(CONFIGS / "refits" / "mistral-7b.toml")
+
+    assert isinstance(recipe, cli.RefitRecipe)
+    assert recipe.base.model_id == "mistralai/Mistral-7B-v0.3"
+    assert recipe.base.revision == "caa1feb0e54d415e2df31207e5f4e273e33509b1"
+    assert recipe.training.refit_max_examples == 1000
+    assert recipe.training.epochs == 2
+    assert recipe.training.learning_rate == 2e-5
+    assert recipe.training.refit_gradient_strategy == "norm_equalized"
+    assert recipe.training.refit_choice_loss_weight == 3.0
+
+
+def test_gemma_4_refit_recipe_declares_exact_heterogeneous_topology() -> None:
+    recipe = cli.load_recipe(CONFIGS / "refits" / "gemma-4-e2b.toml")
+
+    assert isinstance(recipe, cli.RefitRecipe)
+    assert recipe.base.model_id == "google/gemma-4-E2B"
+    assert recipe.base.revision == "d29ff6b45f081a49ee2733a859c9c9c2d95d1a6f"
+    assert recipe.base.layer_path == "model.language_model.layers"
+    assert recipe.base.loader == "multimodal_lm"
+    assert recipe.base.allow_heterogeneous_targets is True
 
 
 def test_validate_command_does_not_run_recipe(monkeypatch, capsys) -> None:

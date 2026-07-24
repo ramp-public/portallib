@@ -76,7 +76,7 @@ docker run --rm --gpus all \
   -e HF_TOKEN \
   -v "$PWD/artifacts:/workspace/portallib/artifacts" \
   -v "$PWD/hf-cache:/cache/huggingface" \
-  portallib-training portallib refit --config examples/configs/refit.toml
+  portallib-training portallib refit --config examples/configs/refits/qwen3-8b.toml
 ```
 
 Choose a base image whose CUDA build supports the assigned GPU. This matters particularly for new

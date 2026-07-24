@@ -34,7 +34,10 @@ errors.
 The checked-in starting points are:
 
 - [`examples/configs/train.toml`](examples/configs/train.toml)
-- [`examples/configs/refit.toml`](examples/configs/refit.toml)
+- [`examples/configs/refits/qwen3-8b.toml`](examples/configs/refits/qwen3-8b.toml)
+- [`examples/configs/refits/gemma-3-4b.toml`](examples/configs/refits/gemma-3-4b.toml)
+- [`examples/configs/refits/gemma-4-e2b.toml`](examples/configs/refits/gemma-4-e2b.toml)
+- [`examples/configs/refits/mistral-7b.toml`](examples/configs/refits/mistral-7b.toml)
 - [`examples/configs/evaluate.toml`](examples/configs/evaluate.toml)
 
 ## Automation contract
