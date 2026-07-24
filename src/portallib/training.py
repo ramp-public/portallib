@@ -17,7 +17,14 @@ from ._architecture import PortalAlignment, PortalCore
 from ._paths import model_slug
 from .config import _ARCHITECTURE_FIELDS, PortalConfig
 from .data import ChoiceDataset, ChoiceExample
-from .evaluation import EvaluationResult, PortalBase, PortalEvaluator, PortalInjector, collate_gold_batch
+from .evaluation import (
+    EvaluationResult,
+    PortalBase,
+    PortalEvaluator,
+    PortalInjector,
+    _choice_batch_losses,
+    collate_gold_batch,
+)
 from .model import PortalModel
 
 
@@ -53,6 +60,8 @@ class PortalTrainingConfig:
     gradient_checkpointing: bool = True
     early_stopping_patience: int | None = None
     task_regression_threshold: float = 0.05
+    refit_gradient_strategy: Literal["sum", "norm_equalized"] = "sum"
+    refit_choice_loss_weight: float = 0.0
     checkpoint_dir: Path | None = None
 
     @classmethod
@@ -84,6 +93,10 @@ class PortalTrainingConfig:
             raise ValueError("early_stopping_patience must be positive or None")
         if self.task_regression_threshold < 0:
             raise ValueError("task_regression_threshold must be non-negative")
+        if self.refit_gradient_strategy not in {"sum", "norm_equalized"}:
+            raise ValueError("refit_gradient_strategy must be 'sum' or 'norm_equalized'")
+        if self.refit_choice_loss_weight < 0:
+            raise ValueError("refit_choice_loss_weight must be non-negative")
         if self.lr_scheduler not in {"constant", "linear"}:
             raise ValueError("lr_scheduler must be 'constant' or 'linear'")
         if not 0 <= self.warmup_ratio < 1:
@@ -231,6 +244,36 @@ def _equalize_gradients(gradients: list[torch.Tensor]) -> torch.Tensor:
     return sum(gradient / (norm + 1e-8) * average for gradient, norm in zip(gradients, norms, strict=True))
 
 
+class _NormEqualizedGradients:
+    """Stream per-task gradients into a constant-memory, norm-balanced sum."""
+
+    def __init__(self, parameters: list[nn.Parameter]) -> None:
+        self.parameters = parameters
+        self.sums = [torch.zeros_like(parameter) for parameter in parameters]
+        self.norms: list[float] = []
+
+    def add(self, gradients: tuple[torch.Tensor | None, ...]) -> float:
+        gradient_norms = [gradient.detach().float().norm() for gradient in gradients if gradient is not None]
+        norm_tensor = torch.stack(gradient_norms).norm() if gradient_norms else torch.tensor(0.0)
+        if not torch.isfinite(norm_tensor):
+            raise RuntimeError("task alignment gradient norm is not finite")
+        norm = float(norm_tensor)
+        self.norms.append(norm)
+        if norm > 0:
+            for accumulator, gradient in zip(self.sums, gradients, strict=True):
+                if gradient is not None:
+                    accumulator.add_(gradient, alpha=1 / norm)
+        return norm
+
+    def assign(self) -> tuple[float, ...]:
+        nonzero_norms = [norm for norm in self.norms if norm > 0]
+        if nonzero_norms:
+            average_norm = sum(nonzero_norms) / len(nonzero_norms)
+            for parameter, accumulator in zip(self.parameters, self.sums, strict=True):
+                parameter.grad = accumulator.mul_(average_norm)
+        return tuple(self.norms)
+
+
 def _gradient_norm(parameters: list[nn.Parameter]) -> float:
     gradients = [parameter.grad.detach().float().norm() for parameter in parameters if parameter.grad is not None]
     return float(torch.stack(gradients).norm()) if gradients else 0.0
@@ -244,6 +287,34 @@ def _batches(
         task_index: [rows[offset : offset + batch_size] for offset in range(0, len(rows), batch_size)]
         for task_index, rows in pools.items()
     }
+
+
+def _refit_batch_loss(
+    target: PortalBase,
+    batch: list[ChoiceExample],
+    recipe: PortalTrainingConfig,
+    device: torch.device,
+) -> torch.Tensor:
+    if recipe.refit_choice_loss_weight > 0:
+        gold_nll, choice_loss = _choice_batch_losses(
+            target.model,
+            target.tokenizer,
+            batch,
+            max_prompt=recipe.max_prompt,
+            device=device,
+        )
+        return gold_nll + recipe.refit_choice_loss_weight * choice_loss
+    input_ids, attention_mask, labels = collate_gold_batch(
+        target.tokenizer,
+        batch,
+        max_prompt=recipe.max_prompt,
+        device=device,
+    )
+    return target.model(
+        input_ids=input_ids,
+        attention_mask=attention_mask,
+        labels=labels,
+    ).loss
 
 
 def _finish_optimizer_step(
@@ -723,6 +794,7 @@ class PortalAdapterRefitter:
             on_epoch=on_epoch,
         )
         first_alignment_grad_norm: float | None = None
+        first_task_gradient_norms: dict[str, float] | None = None
         try:
             initial = self._evaluate(0)
             tracker.record_initial(initial)
@@ -738,25 +810,35 @@ class PortalAdapterRefitter:
                 self.target.model.train(self.recipe.gradient_checkpointing)
                 for _round in range(rounds):
                     optimizer.zero_grad(set_to_none=True)
+                    gradient_accumulator = (
+                        _NormEqualizedGradients(alignment_parameters)
+                        if self.recipe.refit_gradient_strategy == "norm_equalized"
+                        else None
+                    )
                     for task_index, _task in enumerate(self.tasks):
                         batch = batch_cycle.draw(task_index, task_index)
-                        input_ids, attention_mask, labels = collate_gold_batch(
-                            self.target.tokenizer,
-                            batch,
-                            max_prompt=self.recipe.max_prompt,
-                            device=self.device,
-                        )
                         factors = self.alignment(self.core, self.task_latents[task_index])
                         with injector.activate(factors):
-                            loss = self.target.model(
-                                input_ids=input_ids,
-                                attention_mask=attention_mask,
-                                labels=labels,
-                            ).loss
+                            loss = _refit_batch_loss(
+                                self.target,
+                                batch,
+                                self.recipe,
+                                self.device,
+                            )
                             value = float(loss.detach())
                             previous = ema[task_index]
                             ema[task_index] = _update_ema(previous, value, self.recipe.ema_decay)
-                            (loss / max(ema[task_index], self.recipe.ema_floor)).backward()
+                            normalized_loss = loss / max(ema[task_index], self.recipe.ema_floor)
+                            if gradient_accumulator is None:
+                                normalized_loss.backward()
+                            else:
+                                gradient_accumulator.add(
+                                    torch.autograd.grad(normalized_loss, alignment_parameters, allow_unused=True)
+                                )
+                    if gradient_accumulator is not None:
+                        gradient_norms = gradient_accumulator.assign()
+                        if first_task_gradient_norms is None:
+                            first_task_gradient_norms = dict(zip(self.tasks, gradient_norms, strict=True))
                     alignment_grad_norm = _finish_optimizer_step(
                         optimizer,
                         checked_parameters=alignment_parameters,
@@ -796,6 +878,9 @@ class PortalAdapterRefitter:
                     tracker.selected_metrics,
                     self.recipe.task_regression_threshold,
                 ),
+                "refit_gradient_strategy": self.recipe.refit_gradient_strategy,
+                "refit_choice_loss_weight": self.recipe.refit_choice_loss_weight,
                 "first_alignment_grad_norm": first_alignment_grad_norm,
+                "first_task_gradient_norms": first_task_gradient_norms,
             },
         )

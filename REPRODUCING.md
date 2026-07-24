@@ -26,7 +26,7 @@ The three phases can be run as editable Python workflows or as equivalent strict
 | Phase | Python | CLI |
 |---|---|---|
 | Source training | `python examples/train_example.py` | `portallib train --config examples/configs/train.toml` |
-| Target refitting | `python examples/refit_example.py` | `portallib refit --config examples/configs/refit.toml` |
+| Target refitting | `python examples/refit_example.py` | `portallib refit --config examples/configs/refits/qwen3-8b.toml` |
 | Evaluation | `python examples/evaluate_example.py` | `portallib evaluate --config examples/configs/evaluate.toml` |
 
 The Python examples configure and call the public package APIs directly. The TOML recipes under
@@ -47,6 +47,7 @@ portallib validate --config examples/configs/train.toml
 | `Qwen/Qwen3-8B` | `b968826d9c46dd6066d109eabc6255188de91218` |
 | `google/gemma-3-4b-pt` | `cc012e0a6d0787b4adcc0fa2c4da74402494554d` |
 | `google/gemma-4-E2B` | `d29ff6b45f081a49ee2733a859c9c9c2d95d1a6f` |
+| `mistralai/Mistral-7B-v0.3` | `caa1feb0e54d415e2df31207e5f4e273e33509b1` |
 
 The immutable `v0.2.0` artifact tags resolve to:
 
@@ -172,6 +173,7 @@ The checked-in recipe reads the identical shared weights from the 4B-specific co
 
 ```bash
 python examples/refit_example.py
+portallib refit --config examples/configs/refits/qwen3-8b.toml
 ```
 
 For Gemma 3, select its exact `model.language_model.layers` path. Gemma 4 uses the same text-decoder
@@ -195,6 +197,20 @@ The resulting release artifacts are:
 - [`RampPublic/portal-qwen3-8b`](https://huggingface.co/RampPublic/portal-qwen3-8b/tree/v0.2.0)
 - [`RampPublic/portal-gemma-3-4b`](https://huggingface.co/RampPublic/portal-gemma-3-4b/tree/v0.2.0)
 - [`RampPublic/portal-gemma-4-e2b`](https://huggingface.co/RampPublic/portal-gemma-4-e2b/tree/v0.2.0)
+
+## Additional frozen-core refit: Mistral 7B
+
+[`examples/configs/refits/mistral-7b.toml`](examples/configs/refits/mistral-7b.toml) keeps the
+published task latents and canonical core frozen and trains only a new Mistral alignment. It uses
+up to 1,000 examples per task, two epochs, a `2e-5` learning rate, norm-equalized per-task
+gradients, and a character-normalized choice-loss weight of `3.0`:
+
+```bash
+portallib refit --config examples/configs/refits/mistral-7b.toml
+```
+
+The output remains a normal native PorTAL artifact and can be evaluated or exported through the
+same public APIs as the published artifacts.
 
 ## Phase 3: reload and evaluate
 

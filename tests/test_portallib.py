@@ -32,11 +32,12 @@ from portallib import (
     collate_gold_batch,
 )
 from portallib._architecture import PortalAlignment
-from portallib.evaluation import PortalInjector
+from portallib.evaluation import PortalInjector, _choice_batch_losses
 from portallib.training import (
     _BatchCycle,
     _equalize_gradients,
     _make_scheduler,
+    _NormEqualizedGradients,
     _task_regressions,
     _TrainingRunTracker,
     _update_ema,
@@ -1006,6 +1007,36 @@ def test_evaluator_batches_choices_without_changing_metrics() -> None:
     assert batched_model.forward_calls == 3
 
 
+def test_choice_batch_loss_matches_character_normalized_evaluation_and_backpropagates() -> None:
+    class TrainableChoiceLM(nn.Module):
+        def __init__(self) -> None:
+            super().__init__()
+            self.preference = nn.Parameter(torch.tensor(0.0))
+
+        def forward(self, input_ids=None, attention_mask=None):
+            logits = torch.full((*input_ids.shape, 7), -10.0, device=input_ids.device)
+            logits[..., 2] = self.preference
+            logits[..., 3] = 0.7
+            return SimpleNamespace(logits=logits)
+
+    row = ChoiceExample("metric", "prompt", (" yyyyyyyyyy", " n n"), 0)
+    model = TrainableChoiceLM()
+    gold_nll, choice_loss = _choice_batch_losses(
+        model,
+        FixedChoiceTokenizer(),
+        [row],
+        max_prompt=32,
+        device=torch.device("cpu"),
+    )
+    log_probs = torch.log_softmax(torch.tensor([-10.0, -10.0, 0.0, 0.7, -10.0, -10.0, -10.0]), 0)
+    expected_choice_loss = -torch.log_softmax(torch.stack((log_probs[2] / 11, 2 * log_probs[3] / 4)), 0)[0]
+
+    assert float(gold_nll.detach()) == pytest.approx(float(-log_probs[2]))
+    assert float(choice_loss.detach()) == pytest.approx(float(expected_choice_loss))
+    choice_loss.backward()
+    assert model.preference.grad is not None and model.preference.grad < 0
+
+
 def test_gold_batch_collator_masks_prompts_and_is_public() -> None:
     row = ChoiceExample("alpha", "a ?", (" yes", " no"), 0)
     input_ids, attention_mask, labels = collate_gold_batch(
@@ -1061,6 +1092,24 @@ def test_ema_and_base_gradient_equalization_match_stage3_recipe() -> None:
     assert _update_ema(4.0, 2.0, 0.9) == pytest.approx(3.8)
     combined = _equalize_gradients([torch.tensor([3.0, 0.0]), torch.tensor([0.0, 1.0])])
     torch.testing.assert_close(combined, torch.tensor([2.0, 2.0]))
+
+
+def test_refit_parameter_gradient_equalization_uses_global_task_norms() -> None:
+    parameter = nn.Parameter(torch.zeros(2))
+    accumulator = _NormEqualizedGradients([parameter])
+    accumulator.add((torch.tensor([3.0, 0.0]),))
+    accumulator.add((torch.tensor([0.0, 1.0]),))
+    norms = accumulator.assign()
+
+    assert norms == pytest.approx((3.0, 1.0))
+    torch.testing.assert_close(parameter.grad, torch.tensor([2.0, 2.0]))
+
+
+def test_refit_parameter_gradient_equalization_rejects_nonfinite_tasks() -> None:
+    accumulator = _NormEqualizedGradients([nn.Parameter(torch.zeros(1))])
+
+    with pytest.raises(RuntimeError, match="not finite"):
+        accumulator.add((torch.tensor([float("nan")]),))
 
 
 def test_task_regression_diagnostics_compare_selected_epoch_to_epoch_zero() -> None:
@@ -1197,6 +1246,8 @@ def test_balanced_core_training_and_frozen_refit_contract() -> None:
         epochs=1,
         batch_size=1,
         gradient_checkpointing=False,
+        refit_gradient_strategy="norm_equalized",
+        refit_choice_loss_weight=3.0,
     )
 
     trained = PortalCoreTrainer([first, second], dataset, config=recipe).train()
@@ -1223,6 +1274,9 @@ def test_balanced_core_training_and_frozen_refit_contract() -> None:
 
     assert refit.diagnostics["steps_per_epoch"] == 1
     assert refit.diagnostics["tasks_per_step"] == 2
+    assert refit.diagnostics["refit_gradient_strategy"] == "norm_equalized"
+    assert refit.diagnostics["refit_choice_loss_weight"] == 3.0
+    assert set(refit.diagnostics["first_task_gradient_norms"]) == {"alpha", "beta"}
     assert refit.diagnostics["first_alignment_grad_norm"] > 0
     assert len(refit.history) == 2 and refit.history[0].epoch == 0
     assert refit.best_epoch == refit.best_loss_epoch == 1
@@ -1245,6 +1299,8 @@ def test_expanded_training_defaults() -> None:
     assert recipe.lr_scheduler == "constant"
     assert recipe.warmup_ratio == 0.0
     assert recipe.early_stopping_patience is None
+    assert recipe.refit_gradient_strategy == "sum"
+    assert recipe.refit_choice_loss_weight == 0.0
 
 
 def test_linear_warmup_decay_matches_stage3_recipe() -> None:
@@ -1272,6 +1328,8 @@ def test_linear_warmup_decay_matches_stage3_recipe() -> None:
         ({"lr_scheduler": "cosine"}, "lr_scheduler"),
         ({"warmup_ratio": -0.1}, "warmup_ratio"),
         ({"warmup_ratio": 1.0}, "warmup_ratio"),
+        ({"refit_gradient_strategy": "median"}, "refit_gradient_strategy"),
+        ({"refit_choice_loss_weight": -1.0}, "refit_choice_loss_weight"),
     ],
 )
 def test_training_schedule_validation(kwargs: dict[str, object], message: str) -> None:
