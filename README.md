@@ -84,9 +84,11 @@ The exported directory is an ordinary PEFT adapter and reloads with
 | [`RampPublic/portal-qwen3-8b`](https://huggingface.co/RampPublic/portal-qwen3-8b/tree/v0.2.0) | 1,000-example-per-task refit |
 | [`RampPublic/portal-gemma-3-4b`](https://huggingface.co/RampPublic/portal-gemma-3-4b/tree/v0.2.0) | 1,000-example-per-task cross-family refit |
 | [`RampPublic/portal-gemma-4-e2b`](https://huggingface.co/RampPublic/portal-gemma-4-e2b/tree/v0.2.0) | 1,000-example-per-task heterogeneous-attention refit |
+| [`RampPublic/portal-mistral-7b`](https://huggingface.co/RampPublic/portal-mistral-7b/tree/v0.2.1) | 1,000-example-per-task Mistral-family refit |
+| [`RampPublic/portal-inkling`](https://huggingface.co/RampPublic/portal-inkling/tree/v0.2.1) | 1,000-example-per-task heterogeneous multimodal-wrapper refit |
 
-The recipes load the `v0.2.0` artifact revisions. Each repository contains one base-specific native
-PorTAL artifact; task-specific standard PEFT adapters can be generated from it as needed.
+Each link pins the artifact's immutable release revision. Each repository contains one base-specific
+native PorTAL artifact; task-specific standard PEFT adapters can be generated from it as needed.
 
 ## Python workflows
 
