@@ -146,7 +146,7 @@ run them, then install the released training package:
 ```bash
 git clone https://github.com/ramp-public/portallib
 cd portallib
-pip install 'portallib[training]==0.2.0'
+pip install 'portallib[training]==0.2.1'
 python examples/train_example.py
 ```
 
@@ -168,7 +168,7 @@ scheduled jobs, and reproducible subprocess execution:
 Install the training dependencies and optionally validate a recipe without loading models:
 
 ```bash
-pip install 'portallib[training]==0.2.0'
+pip install 'portallib[training]==0.2.1'
 portallib validate --config examples/configs/train.toml
 portallib train --config examples/configs/train.toml
 ```

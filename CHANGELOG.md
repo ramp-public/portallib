@@ -4,6 +4,8 @@ All notable changes to `portallib` are documented here.
 
 ## Unreleased
 
+## 0.2.1 - 2026-07-25
+
 - Add opt-in norm-equalized per-task gradients and character-normalized choice loss for frozen-core
   target refitting.
 - Add pinned target-specific refit recipes for Qwen3-8B, Gemma 3 4B, Gemma 4 E2B, and Mistral 7B
