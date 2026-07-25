@@ -28,7 +28,9 @@ class BaseModelSpec:
     layer_path: str = "model.layers"
     module_paths: dict[str, str] | None = None
     dtype: torch.dtype | str | None = None
+    pad_token: str | None = None
     device_map: str | dict[str, int | str | torch.device] | None = None
+    max_memory: dict[int | str, int | str] | None = None
     attn_implementation: str | None = None
     loader: Literal["causal_lm", "multimodal_lm"] = "causal_lm"
     allow_heterogeneous_targets: bool = False
@@ -96,7 +98,11 @@ def load_base(recipe: BaseModelSpec, *, device: torch.device, dtype: torch.dtype
     else:
         tokenizer = AutoTokenizer.from_pretrained(recipe.model_id, revision=recipe.revision)
         model_loader = AutoModelForCausalLM
-    if tokenizer.pad_token_id is None:
+    if recipe.pad_token is not None:
+        tokenizer.pad_token = recipe.pad_token
+        if tokenizer.pad_token_id is None:
+            raise ValueError(f"tokenizer does not recognize configured pad token {recipe.pad_token!r}")
+    elif tokenizer.pad_token_id is None:
         tokenizer.pad_token = tokenizer.eos_token
     model_kwargs: dict[str, Any] = {
         "revision": recipe.revision,
@@ -104,6 +110,8 @@ def load_base(recipe: BaseModelSpec, *, device: torch.device, dtype: torch.dtype
     }
     if recipe.device_map is not None:
         model_kwargs["device_map"] = recipe.device_map
+    if recipe.max_memory is not None:
+        model_kwargs["max_memory"] = recipe.max_memory
     if recipe.attn_implementation is not None:
         model_kwargs["attn_implementation"] = recipe.attn_implementation
     model = model_loader.from_pretrained(recipe.model_id, **model_kwargs)

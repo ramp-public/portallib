@@ -8,6 +8,8 @@ All notable changes to `portallib` are documented here.
   target refitting.
 - Add pinned target-specific refit recipes for Qwen3-8B, Gemma 3 4B, Gemma 4 E2B, and Mistral 7B
   v0.3.
+- Add explicit tokenizer padding and Hugging Face per-device memory controls, plus a pinned
+  eight-GPU Inkling frozen-core refit recipe.
 
 ## 0.2.0 - 2026-07-23
 

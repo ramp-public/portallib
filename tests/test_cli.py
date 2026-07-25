@@ -31,6 +31,7 @@ def test_console_entrypoint_targets_cli_main() -> None:
         ("refits/gemma-3-4b.toml", cli.RefitRecipe, "refit"),
         ("refits/gemma-4-e2b.toml", cli.RefitRecipe, "refit"),
         ("refits/mistral-7b.toml", cli.RefitRecipe, "refit"),
+        ("refits/inkling.toml", cli.RefitRecipe, "refit"),
         ("evaluate.toml", cli.EvaluateRecipe, "evaluate"),
     ],
 )
@@ -64,6 +65,22 @@ def test_gemma_4_refit_recipe_declares_exact_heterogeneous_topology() -> None:
     assert recipe.base.layer_path == "model.language_model.layers"
     assert recipe.base.loader == "multimodal_lm"
     assert recipe.base.allow_heterogeneous_targets is True
+
+
+def test_inkling_refit_recipe_declares_loading_constraints() -> None:
+    recipe = cli.load_recipe(CONFIGS / "refits" / "inkling.toml")
+
+    assert isinstance(recipe, cli.RefitRecipe)
+    assert recipe.base.model_id == "thinkingmachines/Inkling"
+    assert recipe.base.revision == "828496eeae4c243ff1a22f7f28ff83694f2f7bc9"
+    assert recipe.base.layer_path == "model.language_model.layers"
+    assert recipe.base.pad_token == "<|endoftext|>"
+    assert recipe.base.device_map == "balanced"
+    assert recipe.base.max_memory == {device: "255GiB" for device in range(8)}
+    assert recipe.base.loader == "multimodal_lm"
+    assert recipe.base.allow_heterogeneous_targets is True
+    assert recipe.training.refit_max_examples == 1000
+    assert recipe.training.learning_rate == 2e-5
 
 
 def test_validate_command_does_not_run_recipe(monkeypatch, capsys) -> None:

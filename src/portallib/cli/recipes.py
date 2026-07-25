@@ -125,7 +125,9 @@ class BaseModelRecipe(_StrictModel):
     layer_path: NonEmptyStr = "model.layers"
     module_paths: dict[NonEmptyStr, NonEmptyStr] | None = None
     dtype: DTypeName | None = None
+    pad_token: NonEmptyStr | None = None
     device_map: NonEmptyStr | dict[NonEmptyStr, int | NonEmptyStr] | None = None
+    max_memory: dict[int | NonEmptyStr, int | NonEmptyStr] | None = None
     attn_implementation: NonEmptyStr | None = None
     loader: Literal["causal_lm", "multimodal_lm"] = "causal_lm"
     allow_heterogeneous_targets: bool = False
@@ -134,6 +136,16 @@ class BaseModelRecipe(_StrictModel):
     @classmethod
     def normalize_dtype(cls, value: Any) -> Any:
         return None if value == "auto" else value
+
+    @field_validator("max_memory", mode="before")
+    @classmethod
+    def normalize_memory_devices(cls, value: Any) -> Any:
+        if not isinstance(value, dict):
+            return value
+        return {
+            int(device) if isinstance(device, str) and device.isdecimal() else device: limit
+            for device, limit in value.items()
+        }
 
     @model_validator(mode="after")
     def validate_runtime_recipe(self) -> BaseModelRecipe:

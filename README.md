@@ -122,9 +122,12 @@ Target-specific CLI recipes pin the exact target topology and optimizer:
 | Gemma 3 4B | [`examples/configs/refits/gemma-3-4b.toml`](examples/configs/refits/gemma-3-4b.toml) |
 | Gemma 4 E2B | [`examples/configs/refits/gemma-4-e2b.toml`](examples/configs/refits/gemma-4-e2b.toml) |
 | Mistral 7B v0.3 | [`examples/configs/refits/mistral-7b.toml`](examples/configs/refits/mistral-7b.toml) |
+| Inkling | [`examples/configs/refits/inkling.toml`](examples/configs/refits/inkling.toml) |
 
 The Mistral recipe uses norm-equalized per-task gradients and the character-normalized choice
-objective described below. The other recipes preserve their published target-refit settings.
+objective described below. The Inkling recipe adds explicit tokenizer padding and per-device
+Hugging Face memory limits for its eight-GPU load. The other recipes preserve their published
+target-refit settings.
 
 [`examples/evaluate_example.py`](https://github.com/ramp-public/portallib/blob/main/examples/evaluate_example.py) loads a trained PorTAL artifact and
 its matching raw base, then reports the base floor, adapted per-task metrics, macro metrics, and
@@ -193,10 +196,11 @@ behavior comes from the installed `portallib` release and selected recipe.
 
 ## Model compatibility
 
-PorTAL supports Qwen3 and cross-family refitting to Mistral, Gemma 3, and Gemma 4. Qwen3 and
-Mistral expose decoder layers at `model.layers`; Gemma 3 and Gemma 4 expose their text decoder at
-`model.language_model.layers`. Gemma 4 uses the multimodal auto-model loader and explicit sparse
-projection targets because its projection dimensions and available projections vary across layers.
+PorTAL supports Qwen3 and cross-family refitting to Mistral, Gemma 3, Gemma 4, and Inkling. Qwen3
+and Mistral expose decoder layers at `model.layers`; Gemma 3, Gemma 4, and Inkling expose their text
+decoder at `model.language_model.layers`. Gemma 4 and Inkling use the multimodal auto-model loader
+and explicit sparse projection targets because their projection dimensions or available projections
+vary across layers.
 
 Every artifact uses the same explicit projection-target format. Other model families can use it
 when their exact decoder-layer and projection paths are supplied through `BaseModelSpec`. Set

@@ -38,6 +38,7 @@ The checked-in starting points are:
 - [`examples/configs/refits/gemma-3-4b.toml`](examples/configs/refits/gemma-3-4b.toml)
 - [`examples/configs/refits/gemma-4-e2b.toml`](examples/configs/refits/gemma-4-e2b.toml)
 - [`examples/configs/refits/mistral-7b.toml`](examples/configs/refits/mistral-7b.toml)
+- [`examples/configs/refits/inkling.toml`](examples/configs/refits/inkling.toml)
 - [`examples/configs/evaluate.toml`](examples/configs/evaluate.toml)
 
 ## Automation contract
@@ -104,14 +105,18 @@ table. Each table accepts:
 | `layer_path` | no | Exact decoder-layer path; default `model.layers` |
 | `module_paths` | no | Explicit short-name to projection-path mapping |
 | `dtype` | no | Per-base dtype override |
+| `pad_token` | no | Existing tokenizer token to use for batch padding |
 | `device_map` | no | Hugging Face device-map string or inline table |
+| `max_memory` | no | Hugging Face per-device memory limits |
 | `attn_implementation` | no | Hugging Face attention implementation |
 | `loader` | no | `causal_lm` (default) or `multimodal_lm` |
 | `allow_heterogeneous_targets` | no | Opt into exact sparse targets and per-layer projection widths |
 
 When `device_map` is present, the loader preserves Hugging Face placement and does not apply a bulk
-device move. Exact layer and projection paths are passed to `PortalBase` and validated before
-training.
+device move. Numeric TOML keys under `[base.max_memory]` or `[bases.max_memory]` are normalized to
+integer CUDA device indices; nonnumeric keys such as `cpu` remain strings. An explicit `pad_token`
+must already exist in the tokenizer vocabulary. Exact layer and projection paths are passed to
+`PortalBase` and validated before training.
 
 ## Training fields
 

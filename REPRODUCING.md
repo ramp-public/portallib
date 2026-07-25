@@ -48,6 +48,7 @@ portallib validate --config examples/configs/train.toml
 | `google/gemma-3-4b-pt` | `cc012e0a6d0787b4adcc0fa2c4da74402494554d` |
 | `google/gemma-4-E2B` | `d29ff6b45f081a49ee2733a859c9c9c2d95d1a6f` |
 | `mistralai/Mistral-7B-v0.3` | `caa1feb0e54d415e2df31207e5f4e273e33509b1` |
+| `thinkingmachines/Inkling` | `828496eeae4c243ff1a22f7f28ff83694f2f7bc9` |
 
 The immutable `v0.2.0` artifact tags resolve to:
 
@@ -211,6 +212,22 @@ portallib refit --config examples/configs/refits/mistral-7b.toml
 
 The output remains a normal native PorTAL artifact and can be evaluated or exported through the
 same public APIs as the published artifacts.
+
+## Additional frozen-core refit: Inkling
+
+[`examples/configs/refits/inkling.toml`](examples/configs/refits/inkling.toml) applies the same frozen
+task latents and canonical core to Inkling. It resolves the text decoder at
+`model.language_model.layers`, uses the multimodal auto-model loader, records heterogeneous exact
+projection targets, and trains only a fresh Inkling alignment:
+
+```bash
+portallib refit --config examples/configs/refits/inkling.toml
+```
+
+The pinned recipe uses up to 1,000 examples per task, five epochs, norm-equalized task gradients,
+and a character-normalized choice-loss weight of `3.0`. Inkling's BF16 checkpoint requires eight
+high-memory GPUs for the recorded balanced placement. The explicit pad token and per-GPU
+`max_memory` values keep tokenizer batching and Hugging Face placement deterministic.
 
 ## Phase 3: reload and evaluate
 

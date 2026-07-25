@@ -5,6 +5,7 @@ import sys
 from pathlib import Path
 from types import ModuleType
 
+import pytest
 import torch
 from torch import nn
 
@@ -95,6 +96,7 @@ def test_base_recipe_forwards_host_loading_controls_without_bulk_device_move(mon
         module_paths={"q": "self_attn.q_proj"},
         dtype="float32",
         device_map="cuda",
+        max_memory={0: "20GiB"},
         attn_implementation="sdpa",
     )
 
@@ -108,6 +110,7 @@ def test_base_recipe_forwards_host_loading_controls_without_bulk_device_move(mon
             "revision": "exact-revision",
             "dtype": "float32",
             "device_map": "cuda",
+            "max_memory": {0: "20GiB"},
             "attn_implementation": "sdpa",
         },
     )
@@ -165,6 +168,59 @@ def test_multimodal_base_recipe_uses_processor_tokenizer_and_explicit_topology(m
     assert base.tokenizer.pad_token == "<eos>"
     assert base.layer_path == "model.language_model.layers"
     assert base.allow_heterogeneous_targets is True
+
+
+def test_base_recipe_uses_an_explicit_known_pad_token(monkeypatch) -> None:
+    from transformers import AutoModelForCausalLM, AutoTokenizer
+
+    from portallib.runtime import BaseModelSpec, load_base
+
+    class FakeTokenizer:
+        pad_token = None
+        eos_token = "<eos>"
+
+        @property
+        def pad_token_id(self) -> int | None:
+            return 7 if self.pad_token == "<pad>" else None
+
+    class FakeModel(nn.Module):
+        def __init__(self) -> None:
+            super().__init__()
+            self.anchor = nn.Parameter(torch.zeros(()))
+
+    tokenizer = FakeTokenizer()
+    monkeypatch.setattr(AutoTokenizer, "from_pretrained", lambda *_args, **_kwargs: tokenizer)
+    monkeypatch.setattr(AutoModelForCausalLM, "from_pretrained", lambda *_args, **_kwargs: FakeModel())
+
+    base = load_base(
+        BaseModelSpec("example/base", pad_token="<pad>"),
+        device=torch.device("cpu"),
+        dtype=torch.float32,
+    )
+
+    assert base.tokenizer.pad_token == "<pad>"
+    assert base.tokenizer.pad_token_id == 7
+
+
+def test_base_recipe_rejects_an_unknown_explicit_pad_token(monkeypatch) -> None:
+    from transformers import AutoModelForCausalLM, AutoTokenizer
+
+    from portallib.runtime import BaseModelSpec, load_base
+
+    class FakeTokenizer:
+        pad_token = None
+        eos_token = "<eos>"
+        pad_token_id = None
+
+    monkeypatch.setattr(AutoTokenizer, "from_pretrained", lambda *_args, **_kwargs: FakeTokenizer())
+    monkeypatch.setattr(AutoModelForCausalLM, "from_pretrained", lambda *_args, **_kwargs: nn.Linear(1, 1))
+
+    with pytest.raises(ValueError, match="does not recognize configured pad token"):
+        load_base(
+            BaseModelSpec("example/base", pad_token="<missing>"),
+            device=torch.device("cpu"),
+            dtype=torch.float32,
+        )
 
 
 def test_cuda_context_initialization_is_guarded_and_device_scoped(monkeypatch) -> None:

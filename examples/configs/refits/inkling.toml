@@ -1,0 +1,52 @@
+recipe_version = 1
+kind = "refit"
+output_dir = "../../../artifacts/portal-inkling-1000"
+result_path = "../../../artifacts/portal-inkling-1000/result.json"
+source_artifact = "RampPublic/portal-qwen3-4b"
+source_artifact_revision = "v0.2.0"
+
+[dataset]
+repo_id = "RampPublic/portallib-tasks"
+revision = "ffc3c0e44f529bf64a5ae62ed5db090952db97ea"
+
+[runtime]
+device = "auto"
+dtype = "bfloat16"
+
+[base]
+model_id = "thinkingmachines/Inkling"
+revision = "828496eeae4c243ff1a22f7f28ff83694f2f7bc9"
+layer_path = "model.language_model.layers"
+pad_token = "<|endoftext|>"
+device_map = "balanced"
+loader = "multimodal_lm"
+allow_heterogeneous_targets = true
+
+[base.max_memory]
+0 = "255GiB"
+1 = "255GiB"
+2 = "255GiB"
+3 = "255GiB"
+4 = "255GiB"
+5 = "255GiB"
+6 = "255GiB"
+7 = "255GiB"
+
+[training]
+refit_max_examples = 1000
+eval_max_examples = 1000
+eval_batch_size = 1
+epochs = 5
+batch_size = 4
+learning_rate = 2e-5
+lr_scheduler = "linear"
+warmup_ratio = 0.1
+weight_decay = 0.0
+grad_clip = 1.0
+ema_decay = 0.9
+ema_floor = 1e-3
+max_prompt = 768
+seed = 0
+gradient_checkpointing = true
+refit_gradient_strategy = "norm_equalized"
+refit_choice_loss_weight = 3.0
