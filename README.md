@@ -266,7 +266,7 @@ uv run python -m build
 
 PorTAL is licensed under Apache-2.0.
 
-For questions or feedback, reach Ben Geist on X at [@bgeist](https://x.com/bgeist).
+For questions or feedback, reach Ben Geist on X at [@b_geist](https://x.com/b_geist).
 
 ## Citation
 
