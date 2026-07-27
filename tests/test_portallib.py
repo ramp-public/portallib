@@ -255,6 +255,16 @@ class EmptyPromptTokenizer:
         return SimpleNamespace(input_ids=[] if text == "" else [2])
 
 
+class EmptyChoiceTokenizer:
+    pad_token_id = 0
+    eos_token_id = 1
+
+    def __call__(self, text: str, *, add_special_tokens: bool = True):
+        if add_special_tokens:
+            return SimpleNamespace(input_ids=[self.eos_token_id, 4])
+        return SimpleNamespace(input_ids=[] if text == " dropped" else [2])
+
+
 class RecordingChoiceLM(nn.Module):
     def __init__(self):
         super().__init__()
@@ -1085,6 +1095,32 @@ def test_empty_prompts_use_the_tokenizer_end_token_as_context() -> None:
     assert input_ids.tolist() == [[1, 2]]
     assert attention_mask.tolist() == [[1, 1]]
     assert labels.tolist() == [[-100, 2]]
+
+
+def test_empty_tokenized_choices_are_rejected_by_training_and_evaluation() -> None:
+    row = ChoiceExample("boundary", "prompt", (" dropped", " kept"), 0)
+    message = "choice 0 for task 'boundary' tokenizes to an empty continuation"
+
+    with pytest.raises(ValueError, match=message):
+        collate_gold_batch(
+            EmptyChoiceTokenizer(),
+            [row],
+            max_prompt=32,
+            device=torch.device("cpu"),
+        )
+    with pytest.raises(ValueError, match=message):
+        _choice_batch_losses(
+            FixedChoiceLM(),
+            EmptyChoiceTokenizer(),
+            [row],
+            max_prompt=32,
+            device=torch.device("cpu"),
+        )
+    with pytest.raises(ValueError, match=message):
+        PortalEvaluator().evaluate(
+            PortalBase("toy/empty-choice", FixedChoiceLM(), EmptyChoiceTokenizer()),
+            ChoiceDataset([row], [row]),
+        )
 
 
 def test_ema_and_base_gradient_equalization_match_stage3_recipe() -> None:

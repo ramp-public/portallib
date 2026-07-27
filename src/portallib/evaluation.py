@@ -215,10 +215,12 @@ def collate_gold_batch(
             row.prompt,
             max_prompt=max_prompt,
         )
-        answer, _continuation = _encode_continuation(
+        answer, _continuation = _encode_choice(
             tokenizer,
             boundary_whitespace,
             row.choices[row.gold_idx],
+            task=row.task,
+            choice_index=row.gold_idx,
         )
         sequences.append(prompt + answer)
         prompt_lengths.append(len(prompt))
@@ -253,8 +255,6 @@ def _choice_batch_losses(
                 max_prompt=max_prompt,
             )
         ):
-            if answer_length == 0:
-                raise ValueError(f"choice {choice_index} for task {row.task!r} tokenizes to an empty continuation")
             sequences.append(sequence)
             metadata.append((row_index, choice_index, answer_length, characters))
 
@@ -308,11 +308,13 @@ def _encode_row_choices(
         max_prompt=max_prompt,
     )
     encoded: list[tuple[list[int], int, int]] = []
-    for choice in row.choices:
-        answer, continuation = _encode_continuation(
+    for choice_index, choice in enumerate(row.choices):
+        answer, continuation = _encode_choice(
             tokenizer,
             boundary_whitespace,
             choice,
+            task=row.task,
+            choice_index=choice_index,
         )
         encoded.append((prompt + answer, len(answer), max(len(continuation), 1)))
     return encoded
@@ -378,8 +380,6 @@ class PortalEvaluator:
                     max_prompt=self.max_prompt,
                 )
             ):
-                if answer_length == 0:
-                    continue
                 pending.append((row_index, choice_index, sequence, answer_length, characters))
                 if len(pending) == self.batch_size:
                     flush()
@@ -487,6 +487,21 @@ def _encode_continuation(
     normalized_continuation = boundary_whitespace + continuation
     continuation_ids = tokenizer(normalized_continuation, add_special_tokens=False).input_ids
     return continuation_ids, normalized_continuation
+
+
+def _encode_choice(
+    tokenizer: Any,
+    boundary_whitespace: str,
+    choice: str,
+    *,
+    task: str,
+    choice_index: int,
+) -> tuple[list[int], str]:
+    """Encode one choice and require at least one causal-LM target token."""
+    choice_ids, continuation = _encode_continuation(tokenizer, boundary_whitespace, choice)
+    if not choice_ids:
+        raise ValueError(f"choice {choice_index} for task {task!r} tokenizes to an empty continuation")
+    return choice_ids, continuation
 
 
 def _pad_token_id(tokenizer: Any) -> int:
