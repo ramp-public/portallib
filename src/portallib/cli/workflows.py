@@ -8,6 +8,7 @@ from typing import Any
 
 import torch
 
+from ..config import PortalConfig
 from ..data import ChoiceDataset
 from ..evaluation import PortalEvaluator
 from ..model import PortalModel
@@ -120,3 +121,85 @@ def _run_evaluate(recipe: EvaluateRecipe) -> None:
             "macro_accuracy_lift": portal_result.macro_accuracy - base_result.macro_accuracy,
         },
     )
+
+
+def _inspect_payload(config: PortalConfig, *, source: str, revision: str | None) -> dict[str, Any]:
+    """Summarize a config-only artifact view for the ``inspect`` command."""
+    modules = list(config.modules)
+    targets_by_module: dict[str, dict[str, Any]] = {}
+    for name in modules:
+        module_targets = [target for target in config.projection_targets if target.module_name == name]
+        dimensions = sorted({target.dimensions for target in module_targets})
+        targets_by_module[name] = {
+            "targets": len(module_targets),
+            "layers": len({target.layer_index for target in module_targets}),
+            "dimensions": [list(dimension) for dimension in dimensions],
+        }
+    input_groups, output_groups = config.alignment_groups
+    total_targets = len(config.projection_targets)
+    heterogeneous = any(len(module["dimensions"]) != 1 for module in targets_by_module.values())
+    return {
+        "event": "inspect",
+        "source": source,
+        "revision": revision,
+        "format_version": config.format_version,
+        "base_model": config.base_model_name_or_path,
+        "base_model_revision": config.base_model_revision,
+        "architecture": config.architecture,
+        "task_type": config.task_type,
+        "n_layers": config.n_layers,
+        "tasks": list(config.tasks),
+        "modules": modules,
+        "rank": config.rank,
+        "alpha": config.alpha,
+        "scaling": config.scaling,
+        "d_z": config.d_z,
+        "d_layer": config.d_layer,
+        "hidden": config.hidden,
+        "d_core": config.d_core,
+        "layer_path": config.layer_path,
+        "projection_targets": total_targets,
+        "heterogeneous": heterogeneous,
+        "sparse": total_targets != config.n_layers * len(modules),
+        "targets_by_module": targets_by_module,
+        "alignment_groups": {"input": input_groups, "output": output_groups},
+    }
+
+
+def _render_inspect(payload: dict[str, Any]) -> str:
+    """Render a human-readable summary of an inspect payload."""
+    revision = payload["revision"] or "(unspecified)"
+    base_revision = payload["base_model_revision"] or "(unpinned)"
+    layout = "heterogeneous" if payload["heterogeneous"] else "uniform"
+    if payload["sparse"]:
+        layout += ", sparse"
+    lines = [
+        f"artifact:        {payload['source']} @ {revision}",
+        f"format_version:  {payload['format_version']} ({payload['architecture']}, {payload['task_type']})",
+        f"base_model:      {payload['base_model']} @ {base_revision}",
+        f"layers:          {payload['n_layers']}  (layer_path={payload['layer_path']})",
+        f"tasks ({len(payload['tasks'])}):       {', '.join(payload['tasks'])}",
+        (
+            f"dims:            rank={payload['rank']} alpha={payload['alpha']} "
+            f"scaling={payload['scaling']:.4g} d_z={payload['d_z']} "
+            f"d_layer={payload['d_layer']} hidden={payload['hidden']} d_core={payload['d_core']}"
+        ),
+        f"projection ({payload['projection_targets']} targets, {layout}):",
+    ]
+    for name, module in payload["targets_by_module"].items():
+        dims = "; ".join(f"{in_features}->{out_features}" for in_features, out_features in module["dimensions"])
+        lines.append(f"  {name:<5} {module['targets']} targets over {module['layers']} layers  [{dims}]")
+    input_groups, output_groups = payload["alignment_groups"]["input"], payload["alignment_groups"]["output"]
+    lines.append(f"alignment in:    {input_groups}")
+    lines.append(f"alignment out:   {output_groups}")
+    return "\n".join(lines)
+
+
+def _run_inspect(source: str, *, revision: str | None = None, as_json: bool = False) -> None:
+    """Print an artifact's configuration without downloading weights or the base model."""
+    config = PortalConfig.from_pretrained(source, revision=revision)
+    payload = _inspect_payload(config, source=source, revision=revision)
+    if as_json:
+        _emit(payload)
+    else:
+        print(_render_inspect(payload), flush=True)
