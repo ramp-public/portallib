@@ -8,6 +8,7 @@ Examples:
 
     python scripts/prepare_dataset.py --output portal_tasks.json
     python scripts/prepare_dataset.py --output portal_tasks.json --tasks rte,boolq
+    python scripts/prepare_dataset.py --output shuffled_tasks.json --choice-seed 0
     python scripts/prepare_dataset.py --output portal_tasks.json \
         --push-to-hub namespace/portal-tasks --private
 """
@@ -15,7 +16,9 @@ Examples:
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
+import random
 import re
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
@@ -89,8 +92,8 @@ def _validate_boundary(example: ChoiceExample) -> None:
             raise ValueError(f"{example.task} choices must have exactly one leading space and no trailing whitespace")
 
 
-def format_row(task: str, row: Mapping[str, Any]) -> ChoiceExample | None:
-    """Normalize one upstream row, returning ``None`` for unlabeled rows."""
+def format_row(task: str, row: Mapping[str, Any], *, choice_seed: int | None = None) -> ChoiceExample | None:
+    """Normalize a row or return ``None`` if unlabeled; optionally shuffle SciQ/TruthfulQA choices."""
     try:
         if task == "truthfulqa":
             targets = row["mc1_targets"]
@@ -218,19 +221,35 @@ def format_row(task: str, row: Mapping[str, Any]) -> ChoiceExample | None:
         return None
     example = ChoiceExample.from_dict({"task": task, **value})
     _validate_boundary(example)
+    if choice_seed is not None and task in ("sciq", "truthfulqa"):
+        # Row-local state keeps choices stable across task subsets and iteration order.
+        material = json.dumps([choice_seed, task, example.prompt, example.choices], ensure_ascii=False)
+        order = list(range(len(example.choices)))
+        random.Random(hashlib.sha256(material.encode()).digest()).shuffle(order)
+        example = ChoiceExample(
+            task,
+            example.prompt,
+            tuple(example.choices[index] for index in order),
+            order.index(example.gold_idx),
+        )
     return example
 
 
-def _normalize_rows(task: str, rows: Iterable[Mapping[str, Any]]) -> list[ChoiceExample]:
+def _normalize_rows(
+    task: str, rows: Iterable[Mapping[str, Any]], *, choice_seed: int | None = None
+) -> list[ChoiceExample]:
     normalized = []
     for row in rows:
-        example = format_row(task, row)
+        example = format_row(task, row, choice_seed=choice_seed)
         if example is not None:
             normalized.append(example)
     return normalized
 
 
-def prepare_dataset(tasks: tuple[str, ...], *, cache_dir: str | None = None) -> ChoiceDataset:
+def prepare_dataset(
+    tasks: tuple[str, ...], *, cache_dir: str | None = None, choice_seed: int | None = None
+) -> ChoiceDataset:
+    """Build task pools; ``choice_seed=None`` preserves historical choice ordering."""
     try:
         from datasets import load_dataset
     except ImportError as exc:
@@ -255,8 +274,8 @@ def prepare_dataset(tasks: tuple[str, ...], *, cache_dir: str | None = None) -> 
             source_rows, validation_rows = rows[:cut], rows[cut:]
         else:
             source_rows, validation_rows = raw["train"], raw["validation"]
-        task_train = _normalize_rows(task, source_rows)
-        task_validation = _normalize_rows(task, validation_rows)
+        task_train = _normalize_rows(task, source_rows, choice_seed=choice_seed)
+        task_validation = _normalize_rows(task, validation_rows, choice_seed=choice_seed)
         if not task_train or not task_validation:
             raise ValueError(f"task {task!r} produced an empty split")
         train.extend(task_train)
@@ -280,7 +299,9 @@ def parse_tasks(value: str) -> tuple[str, ...]:
     return tasks
 
 
-def _push_dataset_with_card(dataset: ChoiceDataset, repo_id: str, *, private: bool) -> None:
+def _push_dataset_with_card(
+    dataset: ChoiceDataset, repo_id: str, *, private: bool, choice_seed: int | None = None
+) -> None:
     """Publish both normalized splits and their provenance card in one Hub commit."""
     try:
         from datasets import Dataset
@@ -296,7 +317,15 @@ def _push_dataset_with_card(dataset: ChoiceDataset, repo_id: str, *, private: bo
         data_directory.mkdir()
         for split, rows in dataset.to_dict().items():
             Dataset.from_list(rows).to_parquet(data_directory / f"{split}-00000-of-00001.parquet")
-        (root / "README.md").write_bytes(DATASET_CARD.read_bytes())
+        card = DATASET_CARD.read_bytes()
+        if choice_seed is not None:
+            card += (
+                "\n## Preparation for this revision\n\n"
+                f"This dataset was prepared with `--choice-seed {choice_seed}`. "
+                "SciQ and TruthfulQA choices are deterministically shuffled; other tasks keep their source order. "
+                "The historical JSON checksum above does not apply to this shuffled revision.\n"
+            ).encode()
+        (root / "README.md").write_bytes(card)
         api.upload_folder(
             folder_path=root,
             repo_id=repo_id,
@@ -324,14 +353,20 @@ def main() -> None:
         help="comma-separated task subset; defaults to the canonical 14 tasks",
     )
     parser.add_argument("--cache-dir", default=None)
+    parser.add_argument(
+        "--choice-seed",
+        type=int,
+        default=None,
+        help="shuffle SciQ/TruthfulQA choices reproducibly; omit to preserve historical release ordering",
+    )
     parser.add_argument("--push-to-hub", default="", help="optional destination dataset repository")
     parser.add_argument("--private", action="store_true", help="make an explicitly uploaded dataset private")
     args = parser.parse_args()
 
-    dataset = prepare_dataset(args.tasks, cache_dir=args.cache_dir)
+    dataset = prepare_dataset(args.tasks, cache_dir=args.cache_dir, choice_seed=args.choice_seed)
     dataset.save_json(args.output)
     if args.push_to_hub:
-        _push_dataset_with_card(dataset, args.push_to_hub, private=args.private)
+        _push_dataset_with_card(dataset, args.push_to_hub, private=args.private, choice_seed=args.choice_seed)
     print(
         json.dumps(
             {
@@ -340,6 +375,7 @@ def main() -> None:
                 "train": len(dataset.train),
                 "validation": len(dataset.validation),
                 "hub_repo": args.push_to_hub or None,
+                "choice_seed": args.choice_seed,
             }
         ),
         flush=True,

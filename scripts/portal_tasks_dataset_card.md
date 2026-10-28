@@ -71,8 +71,20 @@ pip install -e '.[training]'
 python scripts/prepare_dataset.py --output portal_tasks.json
 ```
 
-The canonical JSON serialization has SHA-256
+The historical JSON serialization, with `--choice-seed` omitted, has SHA-256
 `97ae9193a02b96daec13f7e21f56fbe7ed5102fd900e6c2093d9bbfc009f74cd`.
+
+For new data without the correct-answer-first position artifact in SciQ and TruthfulQA, run
+`python scripts/prepare_dataset.py --output shuffled_tasks.json --choice-seed 0`. Choices in those
+two tasks are permuted deterministically and `gold_idx` follows the labelled choice. The seed,
+task, prompt and normalized choices determine each permutation independently of task selection
+and iteration order. Other tasks, prompts, row order and split membership are unchanged. Gold
+positions need not be exactly balanced, and ties in candidate scores can resolve differently.
+
+A shuffled dataset requires its own revision and does not match the historical checksum above.
+The preparation script appends the selected seed to the card when explicitly uploading shuffled
+data. Existing immutable dataset/model revisions and their evaluation recipes are not republished
+or changed by this option.
 
 TruthfulQA exposes one labeled split, so the first 75% is used for training and the final 25% for
 validation. Every other task uses its upstream `train` and `validation`

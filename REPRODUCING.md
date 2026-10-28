@@ -74,6 +74,26 @@ The generated JSON contains 129,212 training rows and 19,548 validation rows. It
 copy to be checked against the pinned Hub input. To train from the local file, set
 `DATASET = "portal_tasks.json"` and `DATASET_REVISION = None` in the example recipe.
 
+The default preserves historical choice ordering, including correct-answer-first SciQ and
+TruthfulQA rows. For new datasets that should not expose that answer-position prior, use an
+explicit seed:
+
+```bash
+python scripts/prepare_dataset.py --output shuffled_tasks.json --choice-seed 0
+```
+
+This shuffles SciQ and TruthfulQA choices and remaps `gold_idx` without changing the correct
+continuation, prompts, row order or split membership. Each row's permutation depends on the seed,
+task, prompt and normalized choices, so selecting or reordering tasks does not change it. The
+other tasks keep their existing choice order. Shuffling does not guarantee exactly balanced gold
+positions and can change tie-breaking when candidate scores are equal.
+
+The historical SHA-256 above applies only when `--choice-seed` is omitted. Shuffled data is a new
+input, not a byte-for-byte rebuild of the released dataset. Record the seed and the new dataset
+revision with downstream results; existing release recipes and Hub pins remain unchanged. When
+explicitly uploading shuffled data, the preparation script records the seed in its dataset card.
+Publishing a replacement official dataset revision is a separate maintainer action.
+
 Pass `--tasks rte,boolq` to prepare a smaller subset. The script writes locally by default. Dataset
 publication is an explicit operation:
 
